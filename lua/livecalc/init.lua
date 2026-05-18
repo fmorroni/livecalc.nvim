@@ -1,80 +1,61 @@
+-- lua/livecalc/init.lua
+
 local M = {}
 
-local ns = vim.api.nvim_create_namespace("livecalc")
+local parser = require("livecalc.parser")
+local evaluator = require("livecalc.evaluator")
+local render = require("livecalc.render")
+
+--------------------------------------------------------------------------------
+-- Main update pipeline
+--------------------------------------------------------------------------------
+
+---@param bufnr? integer
+function M.update(bufnr)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+	local ast_lines = parser.parse_document(bufnr)
+	if not ast_lines then
+		-- TODO: better error handling
+		return
+	end
+
+	local state = evaluator.evaluate_document(ast_lines)
+
+	render.render(bufnr, state)
+end
+
+--------------------------------------------------------------------------------
+-- Setup
+--------------------------------------------------------------------------------
 
 ---@param opts? table
 function M.setup(opts)
-	vim.api.nvim_create_autocmd({
-		"VimEnter",
-		"BufReadPost",
-		"TextChanged",
-		"InsertLeave",
-	}, {
-		pattern = "*.lc",
-		callback = function(args)
-			M.update(args.buf)
+	opts = opts or {}
+
+	local group = vim.api.nvim_create_augroup("livecalc", { clear = true })
+
+	vim.api.nvim_create_autocmd("FileType", {
+		group = group,
+		pattern = "livecalc",
+		callback = function(ft_args)
+			-- Trigger when opening new buffer. `BufReadPost` doesn't work here because we are already
+      -- inside a `FileType` autocmd which triggers after the `BufReadPost` event.
+			M.update(ft_args.buf)
+
+			vim.api.nvim_create_autocmd({
+				"VimEnter",
+				"TextChanged",
+				"InsertLeave",
+			}, {
+				group = group,
+				buffer = ft_args.buf,
+				callback = function(args)
+					M.update(args.buf)
+				end,
+			})
 		end,
 	})
-end
-
----@param buf? integer
-function M.update(buf)
-	buf = buf or vim.api.nvim_get_current_buf()
-
-	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-
-	---@type LiveCalcEvaluator
-	local evaluator = require("livecalc.evaluator")
-	---@type LiveCalcTS
-	local ts_mod = require("livecalc.ts")
-
-	local env = evaluator.new_env()
-
-	local nodes = ts_mod.get_assignments(buf)
-
-	---@type vim.Diagnostic[]
-	local diagnostics = {}
-
-	for _, node in ipairs(nodes) do
-		local ok, result = evaluator.eval_assignment(node, env)
-
-		if ok then
-			if result ~= nil then
-				local text = "= " .. tostring(result)
-				local hl = "@comment.info"
-
-				vim.api.nvim_buf_set_extmark(buf, ns, node.line, -1, {
-					virt_text = { { text, hl } },
-					virt_text_pos = "eol",
-				})
-			end
-		else
-			table.insert(diagnostics, {
-				lnum = node.line,
-				col = 0,
-				end_lnum = node.line,
-				end_col = 0,
-				severity = vim.diagnostic.severity.ERROR,
-				message = tostring(result),
-				source = "livecalc",
-			})
-		end
-	end
-
-	local errors = ts_mod.get_errors(buf)
-	for _, err in ipairs(errors) do
-		table.insert(diagnostics, {
-			lnum = err.line,
-			col = 0,
-			end_lnum = err.line,
-			end_col = 0,
-			severity = vim.diagnostic.severity.ERROR,
-			message = err.message,
-			source = "livecalc",
-		})
-	end
-
-	vim.diagnostic.set(ns, buf, diagnostics)
 end
 
 return M

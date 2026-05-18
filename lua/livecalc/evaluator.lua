@@ -1,47 +1,126 @@
----@class LiveCalcEvaluator
----@field new_env fun(): LiveCalcEnv
----@field eval_assignment fun(node: LiveCalcAssignment, env: LiveCalcEnv): boolean, any
-
----@class LiveCalcEnv : table<string, any>
-
----@class LiveCalcEvalResult
----@field ok boolean
----@field value any
+-- lua/livecalc/evaluator.lua
 
 local M = {}
 
----@return LiveCalcEnv
-function M.new_env()
+--------------------------------------------------------------------------------
+-- Environment
+--------------------------------------------------------------------------------
+
+---@class EvalState
+---@field env table<string, number>
+---@field line_results table<integer, any>
+
+---@return EvalState
+function M.new_state()
 	return {
-		math = math,
+		env = {},
+		line_results = {},
 	}
 end
 
----@param node LiveCalcAssignment
----@param env LiveCalcEnv
----@return boolean ok, any result
-function M.eval_assignment(node, env)
-	local fn, err = load(node.code, "livecalc", "t", env)
-	if not fn then
-		return false, err
+--------------------------------------------------------------------------------
+-- AST Evaluation
+--------------------------------------------------------------------------------
+
+---@param node AstNode
+---@param env table<string, number>
+local function eval(node, env)
+	if not node then
+		return nil
 	end
 
-	local ok, exec_err = pcall(fn)
-	if not ok then
-		return false, exec_err
+	if node.type == "number" then
+		return node.value
 	end
 
-	local value_fn = load("return " .. node.expr, "livecalc", "t", env)
-	if not value_fn then
-		return false, "invalid RHS"
+	if node.type == "identifier" then
+		local value = env[node.name]
+
+		if value == nil then
+			error("undefined variable: " .. node.name)
+		end
+
+		return value
 	end
 
-	local ok2, result = pcall(value_fn)
-	if not ok2 then
-		return false, result
+	if node.type == "unary" then
+		local value = eval(node.expr, env)
+
+		if node.op == "-" then
+			return -value
+		end
+
+		error("unknown unary operator: " .. node.op)
 	end
 
-	return true, result
+	if node.type == "binary" then
+		local left = eval(node.left, env)
+		local right = eval(node.right, env)
+
+		if node.op == "+" then
+			return left + right
+		elseif node.op == "-" then
+			return left - right
+		elseif node.op == "*" then
+			return left * right
+		elseif node.op == "/" then
+			return left / right
+		elseif node.op == "^" then
+			return left ^ right
+		end
+
+		error("unknown binary operator: " .. node.op)
+	end
+
+	if node.type == "assignment" then
+		local value = eval(node.value, env)
+
+		env[node.name] = value
+
+		return value
+	end
+
+	-- if node.type == "call" then
+	-- 	local fn = math[node.name]
+	--
+	-- 	if type(fn) ~= "function" then
+	-- 		error("unknown function: " .. node.name)
+	-- 	end
+	--
+	-- 	local args = {}
+	--
+	-- 	for i, arg in ipairs(node.args) do
+	-- 		args[i] = eval(arg, env)
+	-- 	end
+	--
+	-- 	return fn(unpack(args))
+	-- end
+
+	error("unknown node type: " .. tostring(node.type))
+end
+
+--------------------------------------------------------------------------------
+-- Public API
+--------------------------------------------------------------------------------
+
+---@param ast_lines AstLine[]
+---@return EvalState
+function M.evaluate_document(ast_lines)
+	local state = M.new_state()
+
+	for _, ast_line in ipairs(ast_lines) do
+		local ok, result = pcall(eval, ast_line.node, state.env)
+
+		if ok then
+			state.line_results[ast_line.line] = result
+		else
+			state.line_results[ast_line.line] = {
+				error = result,
+			}
+		end
+	end
+
+	return state
 end
 
 return M
