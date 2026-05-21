@@ -1,37 +1,40 @@
----@alias AstNodeType
----| "number"
----| "identifier"
----| "parenthesized_expression"
----| "unary_expression"
----| "binary_expression"
----| "assignment"
----| "error"
+-- lua/livecalc/ast/types.lua
 
----@class NumberNode
+---@class NodeRange
+---@field start_row integer
+---@field end_row integer
+---@field start_col integer
+---@field end_col integer
+
+---@class BaseNode
+---@field type string
+---@field range NodeRange
+
+---@class NumberNode : BaseNode
 ---@field type "number"
 ---@field value number
 
----@class IdentifierNode
+---@class IdentifierNode : BaseNode
 ---@field type "identifier"
 ---@field name string
 
----@class UnaryNode
+---@class UnaryNode : BaseNode
 ---@field type "unary"
 ---@field op string
 ---@field expr AstNode
 
----@class BinaryNode
+---@class BinaryNode : BaseNode
 ---@field type "binary"
 ---@field op string
 ---@field left AstNode
 ---@field right AstNode
 
----@class AssignmentNode
+---@class AssignmentNode : BaseNode
 ---@field type "assignment"
----@field name string
+---@field identifier string
 ---@field value AstNode
 
----@class ErrorNode
+---@class ErrorNode : BaseNode
 ---@field type "error"
 ---@field msg string
 
@@ -44,4 +47,3 @@
 ---| ErrorNode
 
 ---@alias AstConversionFun fun(bufnr: integer, node: TSNode): AstNode
-

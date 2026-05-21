@@ -1,84 +1,187 @@
--- lua/livecalc/evaluator.lua
-
 local M = {}
+local M_priv = {}
 
---------------------------------------------------------------------------------
--- Environment
---------------------------------------------------------------------------------
+---@class ResultSuccess
+---@field type "success"
+---@field value number
+---@field units string?
+
+---@class EvalError
+---@field msg string
+---@field range NodeRange
+
+---@class ResultError
+---@field type "error"
+---@field errors EvalError[]
+
+---@alias Result
+---| ResultSuccess
+---| ResultError
+
+---@alias Env table<string, number>
 
 ---@class EvalState
----@field env table<string, number>
----@field line_results table<integer, any>
+---@field env Env
+---@field line_results table<integer, Result>
 
 ---@return EvalState
-function M.new_state()
+local function new_state()
 	return {
 		env = {},
 		line_results = {},
 	}
 end
 
---------------------------------------------------------------------------------
--- AST Evaluation
---------------------------------------------------------------------------------
-
 ---@param node AstNode
----@param env table<string, number>
-local function eval(node, env)
-	if not node then
-		return nil
-	end
+---@param msg string
+local function eval_error(node, msg)
+	---@type EvalError
+	return {
+		msg = msg,
+		range = node.range,
+	}
+end
 
-	if node.type == "number" then
-		return node.value
-	end
+local unary_operations = {
+	---@type fun(value: number): number
+	["-"] = function(value)
+		return -value
+	end,
+	---@type fun(value: number): number
+	["+"] = function(value)
+		return value
+	end,
+}
 
-	if node.type == "identifier" then
+local binary_operations = {
+	---@type fun(left: number, right:number): number
+	["-"] = function(left, right)
+		return left - right
+	end,
+	---@type fun(left: number, right:number): number
+	["+"] = function(left, right)
+		return left + right
+	end,
+	---@type fun(left: number, right:number): number
+	["*"] = function(left, right)
+		return left * right
+	end,
+	---@type fun(left: number, right:number): number
+	["/"] = function(left, right)
+		return left / right
+	end,
+	["**"] = function(left, right)
+		return left ^ right
+	end,
+}
+
+local node_eval = {
+	---@param node ErrorNode
+	error = function(node)
+		---@type ResultError
+		return {
+			type = "error",
+			errors = { eval_error(node, node.msg) },
+		}
+	end,
+
+	---@param node NumberNode
+	number = function(node)
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = node.value,
+		}
+	end,
+
+	---@param node IdentifierNode
+	---@param env Env
+	identifier = function(node, env)
 		local value = env[node.name]
 
 		if value == nil then
-			error("undefined variable: " .. node.name)
+			---@type ResultError
+			return {
+				type = "error",
+				errors = { eval_error(node, "undefined variable `" .. node.name .. "`") },
+			}
 		end
 
-		return value
-	end
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = value,
+		}
+	end,
 
-	if node.type == "unary" then
-		local value = eval(node.expr, env)
-
-		if node.op == "-" then
-			return -value
+	---@param node UnaryNode
+	---@param env Env
+	---@return Result
+	unary = function(node, env)
+		local result = M_priv.eval(node.expr, env)
+		if result.type == "error" then
+			return result
 		end
 
-		error("unknown unary operator: " .. node.op)
-	end
+		local op = unary_operations[node.op]
+		if not op then
+			---@type ResultError
+			return {
+				type = "error",
+				errors = { eval_error(node, "unknown operator: " .. node.op) },
+			}
+		end
+		result.value = op(result.value)
 
-	if node.type == "binary" then
-		local left = eval(node.left, env)
-		local right = eval(node.right, env)
+		return result
+	end,
 
-		if node.op == "+" then
-			return left + right
-		elseif node.op == "-" then
-			return left - right
-		elseif node.op == "*" then
-			return left * right
-		elseif node.op == "/" then
-			return left / right
-		elseif node.op == "^" then
-			return left ^ right
+	---@param node BinaryNode
+	---@param env Env
+	binary = function(node, env)
+		local left = M_priv.eval(node.left, env)
+		local right = M_priv.eval(node.right, env)
+
+		if left.type == "error" or right.type == "error" then
+			---@type ResultError
+			return {
+				type = "error",
+				errors = vim.list_extend(left.errors or {}, right.errors or {}),
+			}
 		end
 
-		error("unknown binary operator: " .. node.op)
-	end
+		local op = binary_operations[node.op]
 
-	if node.type == "assignment" then
-		local value = eval(node.value, env)
+		if not op then
+			---@type ResultError
+			return {
+				type = "error",
+				errors = {
+					eval_error(node, "Unknown operator `" .. node.op .. "`"),
+				},
+			}
+		end
 
-		env[node.name] = value
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = op(left.value, right.value),
+		}
+	end,
 
-		return value
-	end
+	---@param node AssignmentNode
+	---@param env Env
+	assignment = function(node, env)
+		local result = M_priv.eval(node.value, env)
+
+		if result.type == "error" then
+			return result
+		end
+
+		env[node.identifier] = result.value
+
+		return result
+	end,
 
 	-- if node.type == "call" then
 	-- 	local fn = math[node.name]
@@ -95,8 +198,15 @@ local function eval(node, env)
 	--
 	-- 	return fn(unpack(args))
 	-- end
+}
 
-	error("unknown node type: " .. tostring(node.type))
+---@param node AstNode
+---@param env table<string, number>
+---@return Result
+function M_priv.eval(node, env)
+	local eval_fun = node_eval[node.type]
+	assert(eval_fun ~= nil, "Unknown node type: " .. tostring(node.type))
+	return eval_fun(node, env)
 end
 
 --------------------------------------------------------------------------------
@@ -106,18 +216,10 @@ end
 ---@param ast_lines AstLine[]
 ---@return EvalState
 function M.evaluate_document(ast_lines)
-	local state = M.new_state()
+	local state = new_state()
 
 	for _, ast_line in ipairs(ast_lines) do
-		local ok, result = pcall(eval, ast_line.node, state.env)
-
-		if ok then
-			state.line_results[ast_line.line] = result
-		else
-			state.line_results[ast_line.line] = {
-				error = result,
-			}
-		end
+		state.line_results[ast_line.line] = M_priv.eval(ast_line.node, state.env)
 	end
 
 	return state

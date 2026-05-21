@@ -1,5 +1,3 @@
--- lua/livecalc/init.lua
-
 local M = {}
 
 local parser = require("livecalc.parser")
