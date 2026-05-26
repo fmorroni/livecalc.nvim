@@ -1,80 +1,10 @@
--- lua/livecalc/ast/init.lua
+---@alias AstConversionFun fun(bufnr: integer, node: TSNode): AstNode
 
 local M = {}
 
---------------------------------------------------------------------------------
--- Helpers
---------------------------------------------------------------------------------
+local h = require("livecalc.ast.helpers")
+local u = require("livecalc.ast.units")
 
----@param bufnr integer
----@param node TSNode
-local function text(bufnr, node)
-	return vim.treesitter.get_node_text(node, bufnr)
-end
-
----@param node TSNode
----@param field string
-local function assert_field(node, field)
-	local field_node = node:field(field)
-	assert(#field_node > 0, "Unexpected parsing error. Named child not found.")
-	return field_node[1]
-end
-
----@param node TSNode
----@param idx integer
-local function assert_named_child(node, idx)
-	local named_child = node:named_child(idx)
-	assert(named_child ~= nil, "Unexpected parsing error. Named child not found.")
-	return named_child
-end
-
--- ---@param node TSNode
--- ---@param idx integer
--- local function assert_child(node, idx)
--- 	local child = node:child(idx)
--- 	assert(child ~= nil, "Unexpected parsing error. Child not found.")
--- 	return child
--- end
-
----@param number_str string
-local function assert_number(number_str)
-	local number = tonumber(number_str)
-	assert(number, "Unexpected number: " .. number_str)
-	return number
-end
-
----@param node TSNode
----@return TSNode?
-local function find_error(node)
-	if not node:has_error() then
-		return nil
-	end
-
-	if node:type() == "ERROR" or node:missing() then
-		return node
-	end
-
-	for child in node:iter_children() do
-		local err = find_error(child)
-
-		if err then
-			return err
-		end
-	end
-end
-
----@param node TSNode
-local function range(node)
-	local start_row, start_col, end_row, end_col = node:range()
-
-	---@type NodeRange
-	return {
-		start_row = start_row,
-		end_row = end_row,
-		start_col = start_col,
-		end_col = end_col,
-	}
-end
 --------------------------------------------------------------------------------
 -- AST Builder
 --------------------------------------------------------------------------------
@@ -85,8 +15,8 @@ local ast_conversion = {
 		---@type NumberNode
 		return {
 			type = "number",
-			value = assert_number(text(bufnr, node)),
-			range = range(node),
+			value = h.assert_number(h.text(bufnr, node)),
+			range = h.range(node),
 		}
 	end,
 
@@ -94,37 +24,37 @@ local ast_conversion = {
 		---@type IdentifierNode
 		return {
 			type = "identifier",
-			name = text(bufnr, node),
-			range = range(node),
+			name = h.text(bufnr, node),
+			range = h.range(node),
 		}
 	end,
 
 	parenthesized_expression = function(bufnr, node)
 		---@type AstNode
-		return M.build(bufnr, assert_named_child(node, 0))
+		return M.build(bufnr, h.assert_named_child(node, 0))
 	end,
 
 	unary_expression = function(bufnr, node)
 		---@type UnaryNode
 		return {
 			type = "unary",
-			op = text(bufnr, assert_field(node, "operator")),
-			expr = M.build(bufnr, assert_field(node, "argument")),
-			range = range(node),
+			op = h.text(bufnr, h.assert_field(node, "operator")),
+			expr = M.build(bufnr, h.assert_field(node, "expr")),
+			range = h.range(node),
 		}
 	end,
 
 	binary_expression = function(bufnr, node)
-		local left = assert_field(node, "left")
-		local right = assert_field(node, "right")
+		local left = h.assert_field(node, "left")
+		local right = h.assert_field(node, "right")
 
 		---@type BinaryNode
 		return {
 			type = "binary",
-			op = text(bufnr, assert_field(node, "operator")),
+			op = h.text(bufnr, h.assert_field(node, "operator")),
 			left = M.build(bufnr, left),
 			right = M.build(bufnr, right),
-			range = range(node),
+			range = h.range(node),
 		}
 	end,
 
@@ -132,9 +62,24 @@ local ast_conversion = {
 		---@type AssignmentNode
 		return {
 			type = "assignment",
-			identifier = text(bufnr, assert_field(node, "left")),
-			value = M.build(bufnr, assert_field(node, "right")),
-			range = range(node),
+			identifier = h.text(bufnr, h.assert_field(node, "left")),
+			value = M.build(bufnr, h.assert_field(node, "right")),
+			range = h.range(node),
+		}
+	end,
+
+	expression_with_units = function(bufnr, node)
+		local units = u.normalize(bufnr, h.assert_named_child(h.assert_field(node, "units"), 0))
+		if units.type == "error" then
+			return units
+		end
+
+		---@type UnitAttachNode
+		return {
+			type = "unit_attach",
+			expr = M.build(bufnr, h.assert_field(node, "expr")),
+			units = units.value,
+			range = h.range(node),
 		}
 	end,
 }
@@ -142,8 +87,10 @@ local ast_conversion = {
 ---@param bufnr integer
 ---@param node TSNode
 function M.build(bufnr, node)
-	local err = find_error(node)
-
+	-- TODO: better error managment. If I have for example a binary expr with an error in `left` and an error in
+	-- `right` this method will return a single error node with the first error it encounters instead of a binary
+	-- node with an error in each child.
+	local err = h.find_error(node)
 	if err then
 		local msg
 		if err:missing() then
@@ -156,13 +103,23 @@ function M.build(bufnr, node)
 		return {
 			type = "error",
 			msg = msg,
-			range = range(node),
+			range = h.range(node),
 		}
 	end
 
 	local type = node:type()
 	local conversion_fun = ast_conversion[type]
-	assert(conversion_fun ~= nil, "No conversion function found for type: " .. type)
+	-- assert(conversion_fun ~= nil, "No conversion function found for type: " .. type)
+	-- TODO: this is more useful during development but I don't think it's the
+	-- best in production, probably use the assert then.
+	if conversion_fun == nil then
+		return {
+			type = "error",
+			msg = "No conversion function found for type: " .. type,
+			range = h.range(node),
+		}
+	end
+
 	return conversion_fun(bufnr, node)
 end
 

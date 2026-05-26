@@ -28,7 +28,7 @@ function M.parse_document(bufnr)
 	local result = {}
 
 	for node in root:iter_children() do
-		if node:named() then
+		if node:named() and node:type() ~= "comment" then
 			---@type AstLine
 			local ast_line = {
 				line = node:start() + 1,

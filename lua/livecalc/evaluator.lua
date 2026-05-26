@@ -1,10 +1,13 @@
 local M = {}
 local M_priv = {}
 
+local u = require("livecalc.units_helper")
+local unit_render = require("livecalc.render.units")
+
 ---@class ResultSuccess
 ---@field type "success"
 ---@field value number
----@field units string?
+---@field units Units
 
 ---@class EvalError
 ---@field msg string
@@ -18,11 +21,15 @@ local M_priv = {}
 ---| ResultSuccess
 ---| ResultError
 
----@alias Env table<string, number>
+---@alias Env table<string, ResultSuccess>
+
+---@class LineResult
+---@field line integer
+---@field result Result
 
 ---@class EvalState
 ---@field env Env
----@field line_results table<integer, Result>
+---@field line_results LineResult[]
 
 ---@return EvalState
 local function new_state()
@@ -53,25 +60,75 @@ local unary_operations = {
 	end,
 }
 
+---@type fun(left: ResultSuccess, right:ResultSuccess, node: BinaryNode, op: "+" | "-"): Result
+local function addition_subraction(left, right, node, op)
+	if not u.units_equal(left.units, right.units) then
+		local left_units = unit_render.render_units(left.units)
+		local right_units = unit_render.render_units(right.units)
+		local units = ("[%s] %s [%s]"):format(left_units, op, right_units)
+		---@type ResultError
+		return {
+			type = "error",
+			errors = {
+				eval_error(node, "Left and right expressions must have same units, found: " .. units),
+			},
+		}
+	end
+
+	---@type ResultSuccess
+	return {
+		type = "success",
+		value = (op == "+") and left.value + right.value or left.value - right.value,
+		units = left.units,
+	}
+end
+
+---@alias BinaryOp fun(left: ResultSuccess, right:ResultSuccess, node: BinaryNode): Result
 local binary_operations = {
-	---@type fun(left: number, right:number): number
-	["-"] = function(left, right)
-		return left - right
+	---@type BinaryOp
+	["-"] = function(left, right, node)
+		return addition_subraction(left, right, node, "-")
 	end,
-	---@type fun(left: number, right:number): number
-	["+"] = function(left, right)
-		return left + right
+	---@type BinaryOp
+	["+"] = function(left, right, node)
+		return addition_subraction(left, right, node, "+")
 	end,
-	---@type fun(left: number, right:number): number
+	---@type BinaryOp
 	["*"] = function(left, right)
-		return left * right
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = left.value * right.value,
+			units = u.units_times(left.units, right.units, 1),
+		}
 	end,
-	---@type fun(left: number, right:number): number
+	---@type BinaryOp
 	["/"] = function(left, right)
-		return left / right
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = left.value / right.value,
+			units = u.units_times(left.units, right.units, -1),
+		}
 	end,
-	["**"] = function(left, right)
-		return left ^ right
+	---@type BinaryOp
+	["**"] = function(left, right, node)
+		if not u.units_empty(right.units) then
+			---@type ResultError
+			return {
+				type = "error",
+				errors = {
+					eval_error(node.right, "Exponent can't have units"),
+				},
+			}
+		end
+
+		---@type ResultSuccess
+		return {
+			type = "success",
+			value = left.value ^ right.value,
+			units = u.units_exp(left.units, right.value),
+		}
 	end,
 }
 
@@ -91,15 +148,16 @@ local node_eval = {
 		return {
 			type = "success",
 			value = node.value,
+			units = {},
 		}
 	end,
 
 	---@param node IdentifierNode
 	---@param env Env
 	identifier = function(node, env)
-		local value = env[node.name]
+		local id = env[node.name]
 
-		if value == nil then
+		if id == nil then
 			---@type ResultError
 			return {
 				type = "error",
@@ -110,7 +168,8 @@ local node_eval = {
 		---@type ResultSuccess
 		return {
 			type = "success",
-			value = value,
+			value = id.value,
+			units = id.units,
 		}
 	end,
 
@@ -162,11 +221,7 @@ local node_eval = {
 			}
 		end
 
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = op(left.value, right.value),
-		}
+		return op(left, right, node)
 	end,
 
 	---@param node AssignmentNode
@@ -178,7 +233,21 @@ local node_eval = {
 			return result
 		end
 
-		env[node.identifier] = result.value
+		env[node.identifier] = result
+
+		return result
+	end,
+
+	---@param node UnitAttachNode
+	---@param env Env
+	unit_attach = function(node, env)
+		local result = M_priv.eval(node.expr, env)
+
+		if result.type == "error" then
+			return result
+		end
+
+		result.units = u.units_times(result.units, node.units, 1)
 
 		return result
 	end,
@@ -201,7 +270,7 @@ local node_eval = {
 }
 
 ---@param node AstNode
----@param env table<string, number>
+---@param env Env
 ---@return Result
 function M_priv.eval(node, env)
 	local eval_fun = node_eval[node.type]
@@ -219,7 +288,13 @@ function M.evaluate_document(ast_lines)
 	local state = new_state()
 
 	for _, ast_line in ipairs(ast_lines) do
-		state.line_results[ast_line.line] = M_priv.eval(ast_line.node, state.env)
+		---@type LineResult
+		local line_result = {
+			line = ast_line.line,
+			result = M_priv.eval(ast_line.node, state.env),
+		}
+
+		table.insert(state.line_results, line_result)
 	end
 
 	return state

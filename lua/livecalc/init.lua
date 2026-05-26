@@ -2,7 +2,7 @@ local M = {}
 
 local parser = require("livecalc.parser")
 local evaluator = require("livecalc.evaluator")
-local render = require("livecalc.render")
+local renderer = require("livecalc.render")
 
 --------------------------------------------------------------------------------
 -- Main update pipeline
@@ -20,7 +20,7 @@ function M.update(bufnr)
 
 	local state = evaluator.evaluate_document(ast_lines)
 
-	render.render(bufnr, state)
+	renderer.render(bufnr, state)
 end
 
 --------------------------------------------------------------------------------

@@ -34,6 +34,13 @@
 ---@field identifier string
 ---@field value AstNode
 
+---@alias Units table<string, number>
+
+---@class UnitAttachNode : BaseNode
+---@field type "unit_attach"
+---@field expr AstNode
+---@field units Units
+
 ---@class ErrorNode : BaseNode
 ---@field type "error"
 ---@field msg string
@@ -44,6 +51,5 @@
 ---| UnaryNode
 ---| BinaryNode
 ---| AssignmentNode
+---| UnitAttachNode
 ---| ErrorNode
-
----@alias AstConversionFun fun(bufnr: integer, node: TSNode): AstNode
