@@ -122,6 +122,16 @@ ast_conversion = {
 			}
 		end
 	end,
+
+	---@type AstConversionFun<BuiltinConstant>
+	builtin = function(bufnr, node)
+		---@type BuiltinConstant
+		return {
+			type = "builtin_constant",
+			identifier = ast_conversion.identifier(bufnr, h.assert_named_child(node, 0)),
+			range = h.range(node),
+		}
+	end,
 }
 
 ---@param bufnr integer

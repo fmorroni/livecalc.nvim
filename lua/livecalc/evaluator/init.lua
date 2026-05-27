@@ -4,7 +4,8 @@ local M_priv = {}
 local h = require("livecalc.evaluator.helpers")
 local u = require("livecalc.units_helper")
 local unit_render = require("livecalc.render.units")
-local builtins = require("livecalc.evaluator.builtins")
+local builtin_functions = require("livecalc.evaluator.builtin_functions")
+local builtin_constants = require("livecalc.evaluator.builtin_constants")
 
 ---@class ResultSuccess
 ---@field type "success"
@@ -185,7 +186,7 @@ local node_eval = {
 
 	---@type NodeEvalFun<BuiltinCallNode>
 	builtin_call = function(node, env)
-		local builtin = builtins[node.identifier.name]
+		local builtin = builtin_functions[node.identifier.name]
 		if builtin == nil then
 			return h.result_error({
 				h.eval_error(node.identifier, ("invalid builtin function `@%s`"):format(node.identifier.name)),
@@ -217,6 +218,17 @@ local node_eval = {
 
 	function_call = function(node)
 		return h.result_error({ h.eval_error(node, "Custom functions not supported yet") })
+	end,
+
+	---@type NodeEvalFun<BuiltinConstant>
+	builtin_constant = function(node, env)
+		local constant = builtin_constants[node.identifier.name]
+		if constant == nil then
+			return h.result_error({
+				h.eval_error(node.identifier, ("invalid builtin constant `@%s`"):format(node.identifier.name)),
+			})
+		end
+		return h.result_success(constant, {})
 	end,
 
 	-- if node.type == "call" then

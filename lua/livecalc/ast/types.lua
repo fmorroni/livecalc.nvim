@@ -51,6 +51,10 @@
 ---@field identifier IdentifierNode
 ---@field args AstNode[]
 
+---@class BuiltinConstant : BaseNode
+---@field type "builtin_constant"
+---@field identifier IdentifierNode
+
 ---@class ErrorNode : BaseNode
 ---@field type "error"
 ---@field msg string
@@ -64,4 +68,5 @@
 ---| UnitAttachNode
 ---| FunctionCallNode
 ---| BuiltinCallNode
+---| BuiltinConstant
 ---| ErrorNode
