@@ -19,6 +19,16 @@ function M.result_error(errors)
 	}
 end
 
+---@param left ResultError
+---@param right ResultError
+function M.join_result_errors(left, right)
+	---@type ResultError
+	return {
+		type = "error",
+		errors = vim.list_extend(left.errors, right.errors),
+	}
+end
+
 ---@param value number
 ---@param units Units
 function M.result_success(value, units)

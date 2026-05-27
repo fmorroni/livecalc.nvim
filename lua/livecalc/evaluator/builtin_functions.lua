@@ -1,6 +1,7 @@
 ---@alias BuiltinFun fun(args: ResultSuccess[], node: BuiltinCallNode): Result
 
 local h = require("livecalc.evaluator.helpers")
+local constants = require("livecalc.evaluator.builtin_constants")
 local u = require("livecalc.units_helper")
 local unit_render = require("livecalc.render.units")
 
@@ -46,7 +47,8 @@ local function unitless_arg_expected(units, node)
 	})
 end
 
-return {
+local M
+M = {
 	---@type BuiltinFun
 	sin = function(args, node)
 		if #args ~= 1 then
@@ -78,7 +80,7 @@ return {
 		end
 		local arg_values = {}
 		for _, arg in ipairs(args) do
-			if not u.units_equal(args[1], arg) then
+			if not u.units_equal(args[1].units, arg.units) then
 				return h.result_error({
 					h.eval_error(
 						node,
@@ -90,4 +92,54 @@ return {
 		end
 		return h.result_success(math.max(unpack(arg_values)), args[1].units)
 	end,
+
+	---@type BuiltinFun
+	log = function(args, node)
+		if #args < 1 or #args > 2 then
+			return unexpected_arg_count(1, 2, #args, node)
+		end
+		local x = args[1]
+		local base = args[2] or h.result_success(10, {})
+		---@type ResultError
+		local error = nil
+		if not u.units_empty(x.units) then
+			error = unitless_arg_expected(x.units, node)
+		end
+		if not u.units_empty(base.units) then
+			local base_error = unitless_arg_expected(base.units, node)
+			error = error and h.join_result_errors(error, base_error) or base_error
+		end
+		if error then
+			return error
+		end
+		return h.result_success(math.log(x.value, base.value), {})
+	end,
+
+	---@type BuiltinFun
+	ln = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		return M.log({ args[1], h.result_success(constants.e, {}) }, node)
+	end,
+
+	---@type BuiltinFun
+	unitless = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		local arg = args[1]
+		return h.result_success(arg.value, {})
+	end,
+
+	---@type BuiltinFun
+	abs = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		local arg = args[1]
+		return h.result_success(h.runtime_number(math.abs(arg.value), arg.units))
+	end,
 }
+
+return M

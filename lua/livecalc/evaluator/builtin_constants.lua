@@ -1,3 +1,4 @@
 return {
-	PI = math.pi,
+	pi = math.pi,
+	e = math.exp(1),
 }
