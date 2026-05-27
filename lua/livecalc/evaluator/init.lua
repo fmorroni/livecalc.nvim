@@ -1,8 +1,10 @@
 local M = {}
 local M_priv = {}
 
+local h = require("livecalc.evaluator.helpers")
 local u = require("livecalc.units_helper")
 local unit_render = require("livecalc.render.units")
+local builtins = require("livecalc.evaluator.builtins")
 
 ---@class ResultSuccess
 ---@field type "success"
@@ -39,16 +41,6 @@ local function new_state()
 	}
 end
 
----@param node AstNode
----@param msg string
-local function eval_error(node, msg)
-	---@type EvalError
-	return {
-		msg = msg,
-		range = node.range,
-	}
-end
-
 local unary_operations = {
 	---@type fun(value: number): number
 	["-"] = function(value)
@@ -66,21 +58,12 @@ local function addition_subraction(left, right, node, op)
 		local left_units = unit_render.render_units(left.units)
 		local right_units = unit_render.render_units(right.units)
 		local units = ("[%s] %s [%s]"):format(left_units, op, right_units)
-		---@type ResultError
-		return {
-			type = "error",
-			errors = {
-				eval_error(node, "Left and right expressions must have same units, found: " .. units),
-			},
-		}
+		return h.result_error({
+			h.eval_error(node, "left and right expressions must have same units, found: " .. units),
+		})
 	end
 
-	---@type ResultSuccess
-	return {
-		type = "success",
-		value = (op == "+") and left.value + right.value or left.value - right.value,
-		units = left.units,
-	}
+	return h.result_success((op == "+") and left.value + right.value or left.value - right.value, left.units)
 end
 
 ---@alias BinaryOp fun(left: ResultSuccess, right:ResultSuccess, node: BinaryNode): Result
@@ -95,87 +78,48 @@ local binary_operations = {
 	end,
 	---@type BinaryOp
 	["*"] = function(left, right)
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = left.value * right.value,
-			units = u.units_times(left.units, right.units, 1),
-		}
+		return h.result_success(left.value * right.value, u.units_times(left.units, right.units, 1))
 	end,
 	---@type BinaryOp
 	["/"] = function(left, right)
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = left.value / right.value,
-			units = u.units_times(left.units, right.units, -1),
-		}
+		return h.result_success(left.value / right.value, u.units_times(left.units, right.units, -1))
 	end,
 	---@type BinaryOp
 	["**"] = function(left, right, node)
 		if not u.units_empty(right.units) then
-			---@type ResultError
-			return {
-				type = "error",
-				errors = {
-					eval_error(node.right, "Exponent can't have units"),
-				},
-			}
+			local units = ("[%s]"):format(unit_render.render_units(right.units))
+			return h.result_error({ h.eval_error(node.right, "exponent can't have units, found: " .. units) })
 		end
 
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = left.value ^ right.value,
-			units = u.units_exp(left.units, right.value),
-		}
+		return h.result_success(left.value ^ right.value, u.units_exp(left.units, right.value))
 	end,
 }
 
+---@alias NodeEvalFun<T> fun(node: T, env: Env): Result
+
 local node_eval = {
-	---@param node ErrorNode
+	---@type NodeEvalFun<ErrorNode>
 	error = function(node)
-		---@type ResultError
-		return {
-			type = "error",
-			errors = { eval_error(node, node.msg) },
-		}
+		return h.result_error({ h.eval_error(node, node.msg) })
 	end,
 
-	---@param node NumberNode
+	---@type NodeEvalFun<NumberNode>
 	number = function(node)
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = node.value,
-			units = {},
-		}
+		return h.result_success(node.value, {})
 	end,
 
-	---@param node IdentifierNode
-	---@param env Env
+	---@type NodeEvalFun<IdentifierNode>
 	identifier = function(node, env)
 		local id = env[node.name]
 
 		if id == nil then
-			---@type ResultError
-			return {
-				type = "error",
-				errors = { eval_error(node, "undefined variable `" .. node.name .. "`") },
-			}
+			return h.result_error({ h.eval_error(node, "undefined variable `" .. node.name .. "`") })
 		end
 
-		---@type ResultSuccess
-		return {
-			type = "success",
-			value = id.value,
-			units = id.units,
-		}
+		return h.result_success(id.value, id.units)
 	end,
 
-	---@param node UnaryNode
-	---@param env Env
-	---@return Result
+	---@type NodeEvalFun<UnaryNode>
 	unary = function(node, env)
 		local result = M_priv.eval(node.expr, env)
 		if result.type == "error" then
@@ -184,19 +128,14 @@ local node_eval = {
 
 		local op = unary_operations[node.op]
 		if not op then
-			---@type ResultError
-			return {
-				type = "error",
-				errors = { eval_error(node, "unknown operator: " .. node.op) },
-			}
+			return h.result_error({ h.eval_error(node, "unknown operator: " .. node.op) })
 		end
 		result.value = op(result.value)
 
 		return result
 	end,
 
-	---@param node BinaryNode
-	---@param env Env
+	---@type NodeEvalFun<BinaryNode>
 	binary = function(node, env)
 		local left = M_priv.eval(node.left, env)
 		local right = M_priv.eval(node.right, env)
@@ -212,20 +151,13 @@ local node_eval = {
 		local op = binary_operations[node.op]
 
 		if not op then
-			---@type ResultError
-			return {
-				type = "error",
-				errors = {
-					eval_error(node, "Unknown operator `" .. node.op .. "`"),
-				},
-			}
+			return h.result_error({ h.eval_error(node, "unknown operator `" .. node.op .. "`") })
 		end
 
 		return op(left, right, node)
 	end,
 
-	---@param node AssignmentNode
-	---@param env Env
+	---@type NodeEvalFun<AssignmentNode>
 	assignment = function(node, env)
 		local result = M_priv.eval(node.value, env)
 
@@ -238,8 +170,7 @@ local node_eval = {
 		return result
 	end,
 
-	---@param node UnitAttachNode
-	---@param env Env
+	---@type NodeEvalFun<UnitAttachNode>
 	unit_attach = function(node, env)
 		local result = M_priv.eval(node.expr, env)
 
@@ -250,6 +181,42 @@ local node_eval = {
 		result.units = u.units_times(result.units, node.units, 1)
 
 		return result
+	end,
+
+	---@type NodeEvalFun<BuiltinCallNode>
+	builtin_call = function(node, env)
+		local builtin = builtins[node.identifier.name]
+		if builtin == nil then
+			return h.result_error({
+				h.eval_error(node.identifier, ("invalid builtin function `@%s`"):format(node.identifier.name)),
+			})
+		end
+
+		---@type ResultSuccess[]
+		local args = {}
+		---@type ResultError?
+		local error = nil
+
+		for i, arg in ipairs(node.args) do
+			local result = M_priv.eval(arg, env)
+
+			if result.type == "error" then
+				error = error or h.result_error({})
+				vim.list_extend(error.errors, result.errors)
+			else
+				args[i] = result
+			end
+		end
+
+		if error then
+			return error
+		end
+
+		return builtin(args, node)
+	end,
+
+	function_call = function(node)
+		return h.result_error({ h.eval_error(node, "Custom functions not supported yet") })
 	end,
 
 	-- if node.type == "call" then

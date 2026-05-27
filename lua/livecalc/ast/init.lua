@@ -1,4 +1,4 @@
----@alias AstConversionFun fun(bufnr: integer, node: TSNode): AstNode
+---@alias AstConversionFun<T> fun(bufnr: integer, node: TSNode): T
 
 local M = {}
 
@@ -9,8 +9,9 @@ local u = require("livecalc.ast.units")
 -- AST Builder
 --------------------------------------------------------------------------------
 
----@type table<string, AstConversionFun>
-local ast_conversion = {
+local ast_conversion
+ast_conversion = {
+	---@type AstConversionFun<NumberNode>
 	number = function(bufnr, node)
 		---@type NumberNode
 		return {
@@ -20,6 +21,7 @@ local ast_conversion = {
 		}
 	end,
 
+	---@type AstConversionFun<IdentifierNode>
 	identifier = function(bufnr, node)
 		---@type IdentifierNode
 		return {
@@ -29,11 +31,13 @@ local ast_conversion = {
 		}
 	end,
 
+	---@type AstConversionFun<AstNode>
 	parenthesized_expression = function(bufnr, node)
 		---@type AstNode
 		return M.build(bufnr, h.assert_named_child(node, 0))
 	end,
 
+	---@type AstConversionFun<UnaryNode>
 	unary_expression = function(bufnr, node)
 		---@type UnaryNode
 		return {
@@ -44,6 +48,7 @@ local ast_conversion = {
 		}
 	end,
 
+	---@type AstConversionFun<BinaryNode>
 	binary_expression = function(bufnr, node)
 		local left = h.assert_field(node, "left")
 		local right = h.assert_field(node, "right")
@@ -58,6 +63,7 @@ local ast_conversion = {
 		}
 	end,
 
+	---@type AstConversionFun<AssignmentNode>
 	assignment = function(bufnr, node)
 		---@type AssignmentNode
 		return {
@@ -68,6 +74,7 @@ local ast_conversion = {
 		}
 	end,
 
+	---@type AstConversionFun<UnitAttachNode|ErrorNode>
 	expression_with_units = function(bufnr, node)
 		local units = u.normalize(bufnr, h.assert_named_child(h.assert_field(node, "units"), 0))
 		if units.type == "error" then
@@ -82,6 +89,39 @@ local ast_conversion = {
 			range = h.range(node),
 		}
 	end,
+
+	---@type AstConversionFun<FunctionCallNode|BuiltinCallNode>
+	function_call = function(bufnr, node)
+		local name = h.assert_field(node, "name")
+
+		---@type AstNode[]
+		local args = {}
+		---@type TSNode?
+		local args_node = node:field("args")[1]
+		if args_node then
+			for _, child in ipairs(args_node:named_children()) do
+				table.insert(args, M.build(bufnr, child))
+			end
+		end
+
+		if name:type() == "builtin" then
+			---@type BuiltinCallNode
+			return {
+				type = "builtin_call",
+				identifier = ast_conversion.identifier(bufnr, h.assert_named_child(name, 0)),
+				args = args,
+				range = h.range(node),
+			}
+		else
+			---@type FunctionCallNode
+			return {
+				type = "function_call",
+				identifier = ast_conversion.identifier(bufnr, name),
+				args = args,
+				range = h.range(node),
+			}
+		end
+	end,
 }
 
 ---@param bufnr integer
@@ -94,16 +134,16 @@ function M.build(bufnr, node)
 	if err then
 		local msg
 		if err:missing() then
-			msg = string.format("Missing `%s`", err:type())
+			msg = string.format("missing `%s`", err:type())
 		else
-			msg = string.format("Syntax error near `%s`", vim.treesitter.get_node_text(err, bufnr))
+			msg = string.format("syntax error near `%s`", vim.treesitter.get_node_text(err, bufnr))
 		end
 
 		---@type ErrorNode
 		return {
 			type = "error",
 			msg = msg,
-			range = h.range(node),
+			range = h.range(err),
 		}
 	end
 
@@ -115,7 +155,7 @@ function M.build(bufnr, node)
 	if conversion_fun == nil then
 		return {
 			type = "error",
-			msg = "No conversion function found for type: " .. type,
+			msg = "no conversion function found for type: " .. type,
 			range = h.range(node),
 		}
 	end

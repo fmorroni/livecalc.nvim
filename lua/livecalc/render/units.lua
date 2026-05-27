@@ -124,9 +124,9 @@ function M.render_units(units)
 	local den = render_group(denominator)
 
 	if num ~= "" and den ~= "" then
-		return num .. "/" .. den
+		return num .. " / " .. den
 	elseif den ~= "" then
-		return "1/" .. den
+		return "1 / " .. den
 	else
 		return num
 	end

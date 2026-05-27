@@ -41,6 +41,16 @@
 ---@field expr AstNode
 ---@field units Units
 
+---@class FunctionCallNode : BaseNode
+---@field type "function_call"
+---@field identifier IdentifierNode
+---@field args AstNode[]
+
+---@class BuiltinCallNode : BaseNode
+---@field type "builtin_call"
+---@field identifier IdentifierNode
+---@field args AstNode[]
+
 ---@class ErrorNode : BaseNode
 ---@field type "error"
 ---@field msg string
@@ -52,4 +62,6 @@
 ---| BinaryNode
 ---| AssignmentNode
 ---| UnitAttachNode
+---| FunctionCallNode
+---| BuiltinCallNode
 ---| ErrorNode

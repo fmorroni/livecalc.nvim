@@ -1,0 +1,93 @@
+---@alias BuiltinFun fun(args: ResultSuccess[], node: BuiltinCallNode): Result
+
+local h = require("livecalc.evaluator.helpers")
+local u = require("livecalc.units_helper")
+local unit_render = require("livecalc.render.units")
+
+---@param expected_min integer
+---@param expected_max? integer
+---@param actual integer
+---@param node BuiltinCallNode
+local function unexpected_arg_count(expected_min, expected_max, actual, node)
+	local arguments_str = "arguments"
+	local expected
+	if expected_min == expected_max then
+		expected = tostring(expected_min)
+		if expected_min == 1 then
+			arguments_str = "argument"
+		end
+	elseif expected_max ~= nil then
+		expected = ("%d-%d"):format(expected_min, expected_max)
+	else
+		expected = ("at least %d"):format(expected_min)
+		if expected_min == 1 then
+			arguments_str = "argument"
+		end
+	end
+	return h.result_error({
+		h.eval_error(
+			node,
+			("builtin `@%s` expects %s %s, got %d"):format(node.identifier.name, expected, arguments_str, actual)
+		),
+	})
+end
+
+---@param units Units
+---@param node BuiltinCallNode
+local function unitless_arg_expected(units, node)
+	return h.result_error({
+		h.eval_error(
+			node,
+			("builtin `@%s` expects unitless argument, got [%s]"):format(
+				node.identifier.name,
+				unit_render.render_units(units)
+			)
+		),
+	})
+end
+
+return {
+	---@type BuiltinFun
+	sin = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		local arg = args[1]
+		if not u.units_empty(arg.units) then
+			return unitless_arg_expected(arg.units, node)
+		end
+		return h.result_success(math.sin(arg.value), arg.units)
+	end,
+
+	---@type BuiltinFun
+	cos = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		local arg = args[1]
+		if not u.units_empty(arg.units) then
+			return unitless_arg_expected(arg.units, node)
+		end
+		return h.result_success(math.cos(arg.value), arg.units)
+	end,
+
+	---@type BuiltinFun
+	max = function(args, node)
+		if #args == 0 then
+			return unexpected_arg_count(1, nil, #args, node)
+		end
+		local arg_values = {}
+		for _, arg in ipairs(args) do
+			if not u.units_equal(args[1], arg) then
+				return h.result_error({
+					h.eval_error(
+						node,
+						("builtin `@%s` expects all arguments to have same units"):format(node.identifier.name)
+					),
+				})
+			end
+			table.insert(arg_values, arg.value)
+		end
+		return h.result_success(math.max(unpack(arg_values)), args[1].units)
+	end,
+}

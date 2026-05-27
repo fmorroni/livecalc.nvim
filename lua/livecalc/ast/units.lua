@@ -92,9 +92,9 @@ function M.normalize(bufnr, node)
 	if err then
 		local msg
 		if err:missing() then
-			msg = string.format("Missing `%s`", err:type())
+			msg = string.format("missing `%s`", err:type())
 		else
-			msg = string.format("Syntax error near `%s`", vim.treesitter.get_node_text(err, bufnr))
+			msg = string.format("syntax error near `%s`", vim.treesitter.get_node_text(err, bufnr))
 		end
 
 		---@type ErrorNode
@@ -113,7 +113,7 @@ function M.normalize(bufnr, node)
 	if norm_fun == nil then
 		return {
 			type = "error",
-			msg = "No conversion function found for type: " .. type,
+			msg = "no conversion function found for type: " .. type,
 			range = h.range(node),
 		}
 	end
