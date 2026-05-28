@@ -10,6 +10,33 @@ local u = require("livecalc.ast.units")
 --------------------------------------------------------------------------------
 
 local ast_conversion
+local ast_conversion_extra
+
+ast_conversion_extra = {
+	---@type AstConversionFun<FunctionParameterNode|ErrorNode>
+	parameter = function(bufnr, node)
+		---@type Units?
+		local type = nil
+
+		local type_node = node:field("type")[1]
+		if type_node then
+			local units = u.normalize(bufnr, h.assert_named_child(type_node, 0))
+			if units.type == "error" then
+				return units
+			end
+			type = units.value
+		end
+
+		---@type FunctionParameterNode
+		return {
+			type = "function_parameter",
+			name = h.text(bufnr, h.assert_field(node, "name")),
+			unit = type,
+			range = h.range(node),
+		}
+	end,
+}
+
 ast_conversion = {
 	---@type AstConversionFun<NumberNode>
 	number = function(bufnr, node)
@@ -90,9 +117,9 @@ ast_conversion = {
 		}
 	end,
 
-	---@type AstConversionFun<FunctionCallNode|BuiltinCallNode>
+	---@type AstConversionFun<IdentifierCallNode|BuiltinCallNode|InlineFunctionCallNode|ErrorNode>
 	function_call = function(bufnr, node)
-		local name = h.assert_field(node, "name")
+		local callee = h.assert_field(node, "callee")
 
 		---@type AstNode[]
 		local args = {}
@@ -104,23 +131,67 @@ ast_conversion = {
 			end
 		end
 
-		if name:type() == "builtin" then
+		if callee:type() == "builtin" then
 			---@type BuiltinCallNode
 			return {
 				type = "builtin_call",
-				identifier = ast_conversion.identifier(bufnr, h.assert_named_child(name, 0)),
+				identifier = ast_conversion.identifier(bufnr, h.assert_named_child(callee, 0)),
 				args = args,
 				range = h.range(node),
 			}
-		else
-			---@type FunctionCallNode
+		elseif callee:type() == "identifier" then
+			---@type IdentifierCallNode
 			return {
-				type = "function_call",
-				identifier = ast_conversion.identifier(bufnr, name),
+				type = "identifier_call",
+				identifier = ast_conversion.identifier(bufnr, callee),
+				args = args,
+				range = h.range(node),
+			}
+		elseif callee:type() == "parenthesized_expression" then
+			---@param node2 TSNode
+			local function find_function_node(node2)
+				---@type TSNode?
+				local child = h.assert_named_child(node2, 0)
+				if not child then
+					return nil
+				end
+				if child:type() == "parenthesized_expression" then
+					child = find_function_node(child)
+				elseif child:type() == "function" then
+					return child
+				end
+				return nil
+			end
+
+			local callee_rec = find_function_node(callee)
+			if not callee_rec then
+				---@type ErrorNode
+				return {
+					type = "error",
+					msg = "expression is not a function",
+					range = h.range(callee),
+				}
+			end
+			local function_node = ast_conversion["function"](bufnr, callee_rec)
+			if function_node.type == "error" then
+				return function_node
+			end
+
+			---@type InlineFunctionCallNode
+			return {
+				type = "inline_function_call",
+				fn = function_node,
 				args = args,
 				range = h.range(node),
 			}
 		end
+
+		---@type ErrorNode
+		return {
+			type = "error",
+			msg = "expression is not a function",
+			range = h.range(callee),
+		}
 	end,
 
 	---@type AstConversionFun<BuiltinConstant>
@@ -129,6 +200,33 @@ ast_conversion = {
 		return {
 			type = "builtin_constant",
 			identifier = ast_conversion.identifier(bufnr, h.assert_named_child(node, 0)),
+			range = h.range(node),
+		}
+	end,
+
+	---@type AstConversionFun<FunctionNode|ErrorNode>
+	["function"] = function(bufnr, node)
+		---@type FunctionParameterNode[]
+		local params = {}
+
+		local params_node = node:field("params")[1]
+		if params_node then
+			for _, child in ipairs(params_node:named_children()) do
+				local param = ast_conversion_extra.parameter(bufnr, child)
+				if param.type == "error" then
+					return param
+				end
+				table.insert(params, param)
+			end
+		end
+
+		local body = M.build(bufnr, h.assert_field(node, "body"))
+
+		---@type FunctionNode
+		return {
+			type = "function_def",
+			params = params,
+			body = body,
 			range = h.range(node),
 		}
 	end,

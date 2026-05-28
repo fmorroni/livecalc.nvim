@@ -1,4 +1,4 @@
----@alias BuiltinFun fun(args: ResultSuccess[], node: BuiltinCallNode): Result
+---@alias BuiltinFun fun(args: RuntimeNumber[], node: BuiltinCallNode): Result
 
 local h = require("livecalc.evaluator.helpers")
 local constants = require("livecalc.evaluator.builtin_constants")
@@ -58,7 +58,7 @@ M = {
 		if not u.units_empty(arg.units) then
 			return unitless_arg_expected(arg.units, node)
 		end
-		return h.result_success(math.sin(arg.value), arg.units)
+		return h.result_success(h.runtime_number(math.sin(arg.value), arg.units))
 	end,
 
 	---@type BuiltinFun
@@ -70,7 +70,7 @@ M = {
 		if not u.units_empty(arg.units) then
 			return unitless_arg_expected(arg.units, node)
 		end
-		return h.result_success(math.cos(arg.value), arg.units)
+		return h.result_success(h.runtime_number(math.cos(arg.value), arg.units))
 	end,
 
 	---@type BuiltinFun
@@ -90,7 +90,7 @@ M = {
 			end
 			table.insert(arg_values, arg.value)
 		end
-		return h.result_success(math.max(unpack(arg_values)), args[1].units)
+		return h.result_success(h.runtime_number(math.max(unpack(arg_values)), args[1].units))
 	end,
 
 	---@type BuiltinFun
@@ -99,7 +99,7 @@ M = {
 			return unexpected_arg_count(1, 2, #args, node)
 		end
 		local x = args[1]
-		local base = args[2] or h.result_success(10, {})
+		local base = args[2] or h.result_success(h.runtime_number(10, {}))
 		---@type ResultError
 		local error = nil
 		if not u.units_empty(x.units) then
@@ -112,7 +112,7 @@ M = {
 		if error then
 			return error
 		end
-		return h.result_success(math.log(x.value, base.value), {})
+		return h.result_success(h.runtime_number(math.log(x.value, base.value), {}))
 	end,
 
 	---@type BuiltinFun
@@ -120,7 +120,7 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		return M.log({ args[1], h.result_success(constants.e, {}) }, node)
+		return M.log({ args[1], h.runtime_number(constants.e, {}) }, node)
 	end,
 
 	---@type BuiltinFun
@@ -129,7 +129,7 @@ M = {
 			return unexpected_arg_count(1, 1, #args, node)
 		end
 		local arg = args[1]
-		return h.result_success(arg.value, {})
+		return h.result_success(h.runtime_number(arg.value, {}))
 	end,
 
 	---@type BuiltinFun

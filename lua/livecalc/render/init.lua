@@ -1,6 +1,7 @@
 local M = {}
 
 local u = require("livecalc.render.units")
+local f = require("livecalc.render.functions")
 
 local ns = vim.api.nvim_create_namespace("livecalc")
 local diag_ns = vim.api.nvim_create_namespace("livecalc_diagnostics")
@@ -30,12 +31,26 @@ function M.render(bufnr, state)
 				})
 			end
 		else
-			local text = "= " .. tostring(result.value)
+			---@type string
+			local text
+			local value = result.value
+			if value.type == "number" then
+				---@cast value RuntimeNumber
+				text = "= " .. tostring(value.value)
 
-			local units = u.render_units(result.units)
+				local units = u.render_units(value.units)
 
-			if units ~= "" then
-				text = text .. " [" .. units .. "]"
+				if units ~= "" then
+					text = text .. " [" .. units .. "]"
+				end
+			elseif value.type == "function" then
+				---@cast value RuntimeFunction
+				text = "= " .. f.render_function(value)
+			else
+				-- If we reach here the ls thinks `value.type` doesn't exist because the only two supposedly
+				-- valid values have already been taken into account.
+				---@diagnostic disable-next-line [undefined-field]
+				error("Unrecognized result value type: `" .. value.type .. "`")
 			end
 
 			vim.api.nvim_buf_set_extmark(bufnr, ns, line_result.line - 1, 0, {

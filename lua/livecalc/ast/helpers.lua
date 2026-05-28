@@ -10,7 +10,7 @@ end
 ---@param field string
 function M.assert_field(node, field)
 	local field_node = node:field(field)
-	assert(#field_node > 0, "Unexpected parsing error. Named child not found.")
+	assert(#field_node > 0, "Unexpected parsing error. Field not found.")
 	return field_node[1]
 end
 

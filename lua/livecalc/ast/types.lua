@@ -1,5 +1,3 @@
--- lua/livecalc/ast/types.lua
-
 ---@class NodeRange
 ---@field start_row integer
 ---@field end_row integer
@@ -41,8 +39,8 @@
 ---@field expr AstNode
 ---@field units Units
 
----@class FunctionCallNode : BaseNode
----@field type "function_call"
+---@class IdentifierCallNode : BaseNode
+---@field type "identifier_call"
 ---@field identifier IdentifierNode
 ---@field args AstNode[]
 
@@ -50,6 +48,21 @@
 ---@field type "builtin_call"
 ---@field identifier IdentifierNode
 ---@field args AstNode[]
+
+---@class InlineFunctionCallNode : BaseNode
+---@field type "inline_function_call"
+---@field fn FunctionNode
+---@field args AstNode[]
+
+---@class FunctionParameterNode : BaseNode
+---@field type "function_parameter"
+---@field name string
+---@field unit Units?
+
+---@class FunctionNode : BaseNode
+---@field type "function_def"
+---@field body AstNode
+---@field params FunctionParameterNode[]
 
 ---@class BuiltinConstant : BaseNode
 ---@field type "builtin_constant"
@@ -66,7 +79,9 @@
 ---| BinaryNode
 ---| AssignmentNode
 ---| UnitAttachNode
----| FunctionCallNode
+---| IdentifierCallNode
 ---| BuiltinCallNode
+---| InlineFunctionCallNode
 ---| BuiltinConstant
+---| FunctionNode
 ---| ErrorNode

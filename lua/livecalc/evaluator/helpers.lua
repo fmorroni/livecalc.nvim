@@ -29,15 +29,45 @@ function M.join_result_errors(left, right)
 	}
 end
 
----@param value number
----@param units Units
-function M.result_success(value, units)
+---@param value RuntimeValue
+function M.result_success(value)
 	---@type ResultSuccess
 	return {
 		type = "success",
 		value = value,
+	}
+end
+
+---@param value number
+---@param units Units
+function M.runtime_number(value, units)
+	---@type RuntimeNumber
+	return {
+		type = "number",
+		value = value,
 		units = units,
 	}
+end
+
+---@param node FunctionNode
+---@param env Env
+function M.runtime_function(node, env)
+	---@type RuntimeFunction
+	return {
+		type = "function",
+		params = node.params,
+		body = node.body,
+		return_units = {},
+		closure = vim.tbl_extend("keep", {}, env),
+	}
+end
+
+---@param node AstNode
+---@param actual_type string
+function M.expected_numeric(node, actual_type)
+	return M.result_error({
+		M.eval_error(node, ("expected numeric value, found `%s`"):format(actual_type)),
+	})
 end
 
 return M
