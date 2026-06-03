@@ -33,6 +33,7 @@ function M.setup(opts)
 
 	local group = vim.api.nvim_create_augroup("livecalc", { clear = true })
 
+  -- FIX: I think something here is making update function to trigger twice on VimEnter.
 	vim.api.nvim_create_autocmd("FileType", {
 		group = group,
 		pattern = "livecalc",
