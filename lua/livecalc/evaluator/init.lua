@@ -4,6 +4,7 @@ local M_priv = {}
 local h = require("livecalc.evaluator.helpers")
 local u = require("livecalc.units_helper")
 local unit_render = require("livecalc.render.units")
+local ops = require("livecalc.evaluator.operators")
 local builtin_functions = require("livecalc.evaluator.builtin_functions")
 local builtin_constants = require("livecalc.evaluator.builtin_constants")
 
@@ -14,62 +15,6 @@ local function new_state()
 		line_results = {},
 	}
 end
-
-local unary_operations = {
-	---@type fun(value: number): number
-	["-"] = function(value)
-		return -value
-	end,
-	---@type fun(value: number): number
-	["+"] = function(value)
-		return value
-	end,
-}
-
----@type fun(left: RuntimeNumber, right: RuntimeNumber, node: BinaryNode, op: "+" | "-"): Result
-local function addition_subraction(left, right, node, op)
-	if not u.units_equal(left.units, right.units) then
-		local left_units = unit_render.render_units(left.units)
-		local right_units = unit_render.render_units(right.units)
-		local units = ("[%s] %s [%s]"):format(left_units, op, right_units)
-		return h.result_error({
-			h.eval_error(node, "left and right expressions must have same units, found: " .. units),
-		})
-	end
-
-	return h.result_success(
-		h.runtime_number((op == "+") and left.value + right.value or left.value - right.value, left.units)
-	)
-end
-
----@alias BinaryOp fun(left: RuntimeNumber, right: RuntimeNumber, node: BinaryNode): Result
-local binary_operations = {
-	---@type BinaryOp
-	["-"] = function(left, right, node)
-		return addition_subraction(left, right, node, "-")
-	end,
-	---@type BinaryOp
-	["+"] = function(left, right, node)
-		return addition_subraction(left, right, node, "+")
-	end,
-	---@type BinaryOp
-	["*"] = function(left, right)
-		return h.result_success(h.runtime_number(left.value * right.value, u.units_times(left.units, right.units, 1)))
-	end,
-	---@type BinaryOp
-	["/"] = function(left, right)
-		return h.result_success(h.runtime_number(left.value / right.value, u.units_times(left.units, right.units, -1)))
-	end,
-	---@type BinaryOp
-	["**"] = function(left, right, node)
-		if not u.units_empty(right.units) then
-			local units = ("[%s]"):format(unit_render.render_units(right.units))
-			return h.result_error({ h.eval_error(node.right, "exponent can't have units, found: " .. units) })
-		end
-
-		return h.result_success(h.runtime_number(left.value ^ right.value, u.units_exp(left.units, right.value)))
-	end,
-}
 
 ---@alias NodeEvalFun<T> fun(node: T, env: Env): Result
 
@@ -85,6 +30,11 @@ node_eval = {
 		return h.result_success(h.runtime_number(node.value, {}))
 	end,
 
+	---@type NodeEvalFun<BooleanNode>
+	boolean = function(node)
+		return h.result_success(h.runtime_boolean(node.value))
+	end,
+
 	---@type NodeEvalFun<IdentifierNode>
 	identifier = function(node, env)
 		local id = env[node.name]
@@ -97,20 +47,39 @@ node_eval = {
 	end,
 
 	---@type NodeEvalFun<UnaryNode>
-	unary = function(node, env)
+	unary_numeric = function(node, env)
 		local result = M_priv.eval(node.expr, env)
 		if result.type == "error" then
 			return result
 		end
 
-		local value = result.value
-		if value.type ~= "number" then
-			return h.result_error({ h.eval_error(node, ("operator `%s` can't be applied to function"):format(node.op)) })
+		local value = h.assert_number(node, result.value)
+		if value.type == "error" then
+			return value
 		end
 
-		local op = unary_operations[node.op]
+		local op = ops.unary_numeric[node.op]
 		if not op then
-			return h.result_error({ h.eval_error(node, "unknown operator: " .. node.op) })
+			return h.result_error({ h.eval_error(node, ("unknown operator `%s`"):format(node.op)) })
+		end
+		return h.result_success(h.runtime_number(op(value.value), value.units))
+	end,
+
+	---@type NodeEvalFun<UnaryNode>
+	unary_boolean = function(node, env)
+		local result = M_priv.eval(node.expr, env)
+		if result.type == "error" then
+			return result
+		end
+
+		local value = h.assert_boolean(node, result.value)
+		if value.type == "error" then
+			return value
+		end
+
+		local op = ops.unary_boolean[node.op]
+		if not op then
+			return h.result_error({ h.eval_error(node, ("unknown operator `%s`"):format(node.op)) })
 		end
 		value.value = op(value.value)
 
@@ -118,34 +87,51 @@ node_eval = {
 	end,
 
 	---@type NodeEvalFun<BinaryNode>
-	binary = function(node, env)
-		local left = M_priv.eval(node.left, env)
-		local right = M_priv.eval(node.right, env)
+	binary_numeric = function(node, env)
+		local left_node = M_priv.eval(node.left, env)
+		local right_node = M_priv.eval(node.right, env)
 
-		if left.type == "error" or right.type == "error" then
+		if left_node.type == "error" or right_node.type == "error" then
 			---@type ResultError
 			return {
 				type = "error",
-				errors = vim.list_extend(left.errors or {}, right.errors or {}),
+				errors = vim.list_extend(left_node.errors or {}, right_node.errors or {}),
 			}
 		end
 
-		local left_value = left.value
-		if left_value.type ~= "number" then
-			return h.expected_numeric(node, left_value.type)
-		end
-		local right_value = right.value
-		if right_value.type ~= "number" then
-			return h.expected_numeric(node, right_value.type)
+		local left = h.assert_number(node.left, left_node.value)
+		local right = h.assert_number(node.right, right_node.value)
+		if left.type == "error" or right.type == "error" then
+			return h.join_result_errors(left.errors, right.errors)
 		end
 
-		local op = binary_operations[node.op]
-
+		local op = ops.binary_numeric[node.op]
 		if not op then
-			return h.result_error({ h.eval_error(node, "unknown operator `" .. node.op .. "`") })
+			return h.result_error({ h.eval_error(node, ("unknown operator `%s`"):format(node.op)) })
 		end
 
-		return op(left_value, right_value, node)
+		return op(left, right, node)
+	end,
+
+	---@type NodeEvalFun<BinaryNode>
+	binary_boolean = function(node, env)
+		local left_node = M_priv.eval(node.left, env)
+		local right_node = M_priv.eval(node.right, env)
+
+		if left_node.type == "error" or right_node.type == "error" then
+			---@type ResultError
+			return {
+				type = "error",
+				errors = vim.list_extend(left_node.errors or {}, right_node.errors or {}),
+			}
+		end
+
+		local op = ops.binary_boolean[node.op]
+		if not op then
+			return h.result_error({ h.eval_error(node, ("unknown operator `%s`"):format(node.op)) })
+		end
+
+		return op(left_node.value, right_node.value, node)
 	end,
 
 	---@type NodeEvalFun<AssignmentNode>
@@ -171,7 +157,7 @@ node_eval = {
 
 		local value = result.value
 		if value.type ~= "number" then
-			return h.result_error({ h.eval_error(node, "function can't have units") })
+			return h.result_error({ h.eval_error(node, ("%s can't have units"):format(value.type)) })
 		end
 
 		local new_value = h.runtime_number(value.value, u.units_times(value.units, node.units, 1))
@@ -188,7 +174,7 @@ node_eval = {
 			})
 		end
 
-		---@type RuntimeNumber[]
+		---@type RuntimeValue[]
 		local args = {}
 		---@type ResultError?
 		local error = nil
@@ -200,11 +186,12 @@ node_eval = {
 				error = error or h.result_error({})
 				vim.list_extend(error.errors, result.errors)
 			else
-				local value = result.value
-				if value.type ~= "number" then
-					return h.expected_numeric(node.args[i], value.type)
-				end
-				args[i] = value
+				-- local value = h.assert_number(node.args[i], result.value)
+				-- if value.type == "error" then
+				-- 	return value
+				-- end
+				-- args[i] = value
+				args[i] = result.value
 			end
 		end
 
@@ -293,7 +280,9 @@ node_eval = {
 ---@return Result
 function M_priv.eval(node, env)
 	local eval_fun = node_eval[node.type]
-	assert(eval_fun ~= nil, "Unknown node type: " .. tostring(node.type))
+	if not eval_fun then
+		return h.result_error({ h.eval_error(node, ("unknown node type `%s`"):format(node.type)) })
+	end
 	return eval_fun(node, env)
 end
 
@@ -326,20 +315,24 @@ function M_priv.eval_runtime_function(fn, node, env)
 
 		local value = arg.value
 
-		if value.type ~= "number" then
-			return h.expected_numeric(node.args[i], value.type)
-		end
+		if param.unit then
+			if value.type ~= "number" then
+				return h.result_error({
+					h.eval_error(node.args[i], "expected a numeric argument"),
+				})
+			end
 
-		if param.unit and not u.units_equal(value.units, param.unit) then
-			return h.result_error({
-				h.eval_error(
-					node.args[i],
-					("argument of type `[%s]` is not assignable to parameter of type `[%s]`"):format(
-						unit_render.render_units(value.units),
-						unit_render.render_units(param.unit)
-					)
-				),
-			})
+			if not u.units_equal(value.units, param.unit) then
+				return h.result_error({
+					h.eval_error(
+						node.args[i],
+						("argument of type `[%s]` is not assignable to parameter of type `[%s]`"):format(
+							unit_render.render_units(value.units),
+							unit_render.render_units(param.unit)
+						)
+					),
+				})
+			end
 		end
 
 		bindings[param.name] = value
@@ -357,6 +350,9 @@ function M_priv.eval_runtime_function(fn, node, env)
 
 	return res
 end
+
+------@type fun(node: BinaryNode, env: Env, type: "number" | "boolean"): Result
+---function M_priv.eval_binary(node, env, type) end
 
 --------------------------------------------------------------------------------
 -- Public API

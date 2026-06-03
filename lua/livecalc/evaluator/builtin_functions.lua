@@ -1,4 +1,4 @@
----@alias BuiltinFun fun(args: RuntimeNumber[], node: BuiltinCallNode): Result
+---@alias BuiltinFun fun(args: RuntimeValue[], node: BuiltinCallNode): Result
 
 local h = require("livecalc.evaluator.helpers")
 local constants = require("livecalc.evaluator.builtin_constants")
@@ -54,11 +54,14 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		local arg = args[1]
-		if not u.units_empty(arg.units) then
-			return unitless_arg_expected(arg.units, node)
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return value
 		end
-		return h.result_success(h.runtime_number(math.sin(arg.value), arg.units))
+		if not u.units_empty(value.units) then
+			return unitless_arg_expected(value.units, node)
+		end
+		return h.result_success(h.runtime_number(math.sin(value.value), value.units))
 	end,
 
 	---@type BuiltinFun
@@ -66,11 +69,14 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		local arg = args[1]
-		if not u.units_empty(arg.units) then
-			return unitless_arg_expected(arg.units, node)
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return value
 		end
-		return h.result_success(h.runtime_number(math.cos(arg.value), arg.units))
+		if not u.units_empty(value.units) then
+			return unitless_arg_expected(value.units, node)
+		end
+		return h.result_success(h.runtime_number(math.cos(value.value), value.units))
 	end,
 
 	---@type BuiltinFun
@@ -78,9 +84,14 @@ M = {
 		if #args == 0 then
 			return unexpected_arg_count(1, nil, #args, node)
 		end
+		---@type number[]
 		local arg_values = {}
-		for _, arg in ipairs(args) do
-			if not u.units_equal(args[1].units, arg.units) then
+		for i, arg in ipairs(args) do
+			local value = h.assert_number(node.args[i], arg)
+			if value.type == "error" then
+				return value
+			end
+			if not u.units_equal(args[1].units, value.units) then
 				return h.result_error({
 					h.eval_error(
 						node,
@@ -88,7 +99,7 @@ M = {
 					),
 				})
 			end
-			table.insert(arg_values, arg.value)
+			table.insert(arg_values, value.value)
 		end
 		return h.result_success(h.runtime_number(math.max(unpack(arg_values)), args[1].units))
 	end,
@@ -98,8 +109,11 @@ M = {
 		if #args < 1 or #args > 2 then
 			return unexpected_arg_count(1, 2, #args, node)
 		end
-		local x = args[1]
-		local base = args[2] or h.result_success(h.runtime_number(10, {}))
+		local x = h.assert_number(node.args[1], args[1])
+		local base = args[2] and h.assert_number(node.args[2], args[2]) or h.runtime_number(10, {})
+		if x.type == "error" or base.type == "error" then
+			return h.join_result_errors(x.errors, base.errors)
+		end
 		---@type ResultError
 		local error = nil
 		if not u.units_empty(x.units) then
@@ -120,7 +134,11 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		return M.log({ args[1], h.runtime_number(constants.e, {}) }, node)
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return value
+		end
+		return M.log({ value, h.runtime_number(constants.e, {}) }, node)
 	end,
 
 	---@type BuiltinFun
@@ -128,8 +146,11 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		local arg = args[1]
-		return h.result_success(h.runtime_number(arg.value, {}))
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return value
+		end
+		return h.result_success(h.runtime_number(value.value, {}))
 	end,
 
 	---@type BuiltinFun
@@ -137,8 +158,27 @@ M = {
 		if #args ~= 1 then
 			return unexpected_arg_count(1, 1, #args, node)
 		end
-		local arg = args[1]
-		return h.result_success(h.runtime_number(math.abs(arg.value), arg.units))
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return value
+		end
+		return h.result_success(h.runtime_number(math.abs(value.value), value.units))
+	end,
+
+	---@type BuiltinFun
+	["if"] = function(args, node)
+		if #args ~= 3 then
+			return unexpected_arg_count(3, 3, #args, node)
+		end
+		local cond = h.assert_boolean(node.args[1], args[1])
+		if cond.type == "error" then
+			return cond
+		end
+		if cond.value then
+			return h.result_success(args[2])
+		else
+			return h.result_success(args[3])
+		end
 	end,
 }
 

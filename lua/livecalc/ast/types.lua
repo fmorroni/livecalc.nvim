@@ -12,17 +12,25 @@
 ---@field type "number"
 ---@field value number
 
+---@class BooleanNode : BaseNode
+---@field type "boolean"
+---@field value boolean
+
 ---@class IdentifierNode : BaseNode
 ---@field type "identifier"
 ---@field name string
 
+---@alias UnaryNodeType "unary_numeric" | "unary_boolean"
+
 ---@class UnaryNode : BaseNode
----@field type "unary"
+---@field type UnaryNodeType
 ---@field op string
 ---@field expr AstNode
 
+---@alias BinaryNodeType "binary_numeric" | "binary_boolean"
+
 ---@class BinaryNode : BaseNode
----@field type "binary"
+---@field type BinaryNodeType
 ---@field op string
 ---@field left AstNode
 ---@field right AstNode
@@ -74,6 +82,7 @@
 
 ---@alias AstNode
 ---| NumberNode
+---| BooleanNode
 ---| IdentifierNode
 ---| UnaryNode
 ---| BinaryNode

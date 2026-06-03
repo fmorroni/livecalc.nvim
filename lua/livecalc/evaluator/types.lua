@@ -1,7 +1,13 @@
+---@alias RuntimeType "number" | "boolean" | "function"
+
 ---@class RuntimeNumber
 ---@field type "number"
 ---@field value number
 ---@field units Units
+
+---@class RuntimeBoolean
+---@field type "boolean"
+---@field value boolean
 
 ---@class RuntimeFunction
 ---@field type "function"
@@ -13,6 +19,7 @@
 ---@alias RuntimeValue
 ---| RuntimeNumber
 ---| RuntimeFunction
+---| RuntimeBoolean
 
 ---@class ResultSuccess
 ---@field type "success"

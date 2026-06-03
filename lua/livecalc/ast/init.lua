@@ -35,6 +35,21 @@ ast_conversion_extra = {
 			range = h.range(node),
 		}
 	end,
+
+	---@type fun(bufnr: integer, node: TSNode, type: BinaryNodeType): BinaryNode
+	binary_expression = function(bufnr, node, type)
+		local left = h.assert_field(node, "left")
+		local right = h.assert_field(node, "right")
+
+		---@type BinaryNode
+		return {
+			type = type,
+			op = h.text(bufnr, h.assert_field(node, "operator")),
+			left = M.build(bufnr, left),
+			right = M.build(bufnr, right),
+			range = h.range(node),
+		}
+	end,
 }
 
 ast_conversion = {
@@ -44,6 +59,17 @@ ast_conversion = {
 		return {
 			type = "number",
 			value = h.assert_number(h.text(bufnr, node)),
+			range = h.range(node),
+		}
+	end,
+
+	---@type AstConversionFun<BooleanNode>
+	boolean = function(bufnr, node)
+		local value_str = h.text(bufnr, node)
+		---@type BooleanNode
+		return {
+			type = "boolean",
+			value = value_str == "true",
 			range = h.range(node),
 		}
 	end,
@@ -66,28 +92,24 @@ ast_conversion = {
 
 	---@type AstConversionFun<UnaryNode>
 	unary_expression = function(bufnr, node)
+		local op = h.text(bufnr, h.assert_field(node, "operator"))
 		---@type UnaryNode
 		return {
-			type = "unary",
-			op = h.text(bufnr, h.assert_field(node, "operator")),
+			type = op == "!" and "unary_boolean" or "unary_numeric",
+			op = op,
 			expr = M.build(bufnr, h.assert_field(node, "expr")),
 			range = h.range(node),
 		}
 	end,
 
 	---@type AstConversionFun<BinaryNode>
-	binary_expression = function(bufnr, node)
-		local left = h.assert_field(node, "left")
-		local right = h.assert_field(node, "right")
+	binary_numeric_expression = function(bufnr, node)
+		return ast_conversion_extra.binary_expression(bufnr, node, "binary_numeric")
+	end,
 
-		---@type BinaryNode
-		return {
-			type = "binary",
-			op = h.text(bufnr, h.assert_field(node, "operator")),
-			left = M.build(bufnr, left),
-			right = M.build(bufnr, right),
-			range = h.range(node),
-		}
+	---@type AstConversionFun<BinaryNode>
+	binary_boolean_expression = function(bufnr, node)
+		return ast_conversion_extra.binary_expression(bufnr, node, "binary_boolean")
 	end,
 
 	---@type AstConversionFun<AssignmentNode>
@@ -235,9 +257,6 @@ ast_conversion = {
 ---@param bufnr integer
 ---@param node TSNode
 function M.build(bufnr, node)
-	-- TODO: better error managment. If I have for example a binary expr with an error in `left` and an error in
-	-- `right` this method will return a single error node with the first error it encounters instead of a binary
-	-- node with an error in each child.
 	local err = h.find_error(node)
 	if err then
 		local msg
