@@ -4,6 +4,7 @@ local h = require("livecalc.evaluator.helpers")
 local constants = require("livecalc.evaluator.builtin_constants")
 local u = require("livecalc.units_helper")
 local unit_render = require("livecalc.render.units")
+local utils = require("livecalc.utils")
 
 ---@param expected_min integer
 ---@param expected_max? integer
@@ -33,20 +34,6 @@ local function unexpected_arg_count(expected_min, expected_max, actual, node)
 	})
 end
 
----@param units Units
----@param node BuiltinCallNode
-local function unitless_arg_expected(units, node)
-	return h.result_error({
-		h.eval_error(
-			node,
-			("builtin `@%s` expects unitless argument, got [%s]"):format(
-				node.identifier.name,
-				unit_render.render_units(units)
-			)
-		),
-	})
-end
-
 local M
 M = {
 	---@type BuiltinFun
@@ -58,8 +45,9 @@ M = {
 		if value.type == "error" then
 			return value
 		end
-		if not u.units_empty(value.units) then
-			return unitless_arg_expected(value.units, node)
+		local err = h.expected_unitless(node.args[1], value)
+		if err then
+			return err
 		end
 		return h.result_success(h.runtime_number(math.sin(value.value), value.units))
 	end,
@@ -73,8 +61,9 @@ M = {
 		if value.type == "error" then
 			return value
 		end
-		if not u.units_empty(value.units) then
-			return unitless_arg_expected(value.units, node)
+		local err = h.expected_unitless(node.args[1], value)
+		if err then
+			return err
 		end
 		return h.result_success(h.runtime_number(math.cos(value.value), value.units))
 	end,
@@ -114,17 +103,10 @@ M = {
 		if x.type == "error" or base.type == "error" then
 			return h.join_result_errors(x.errors, base.errors)
 		end
-		---@type ResultError
-		local error = nil
-		if not u.units_empty(x.units) then
-			error = unitless_arg_expected(x.units, node)
-		end
-		if not u.units_empty(base.units) then
-			local base_error = unitless_arg_expected(base.units, node)
-			error = error and h.join_result_errors(error, base_error) or base_error
-		end
-		if error then
-			return error
+		local error_x = h.expected_unitless(node.args[1], x)
+		local error_base = h.expected_unitless(node.args[2], base)
+		if error_x or error_base then
+			return h.join_result_errors(error_x and error_x.errors, error_base and error_base.errors)
 		end
 		return h.result_success(h.runtime_number(math.log(x.value, base.value), {}))
 	end,
@@ -179,6 +161,23 @@ M = {
 		else
 			return h.result_success(args[3])
 		end
+	end,
+
+	---@type BuiltinFun
+	round = function(args, node)
+		if #args ~= 2 then
+			return unexpected_arg_count(2, 2, #args, node)
+		end
+		local value = h.assert_number(node.args[1], args[1])
+		local digits = h.assert_integer(node.args[2], args[2])
+		if value.type == "error" or digits.type == "error" then
+			return h.join_result_errors(value.errors, digits.errors)
+		end
+		local err = h.expected_unitless(node.args[2], digits)
+		if err then
+			return err
+		end
+		return h.result_success(h.runtime_number(utils.round(value.value, digits.value), value.units))
 	end,
 }
 
