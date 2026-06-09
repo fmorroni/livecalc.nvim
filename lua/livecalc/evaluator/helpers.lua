@@ -1,3 +1,6 @@
+local u = require("livecalc.units_helper")
+local unit_render = require("livecalc.render.units")
+
 local M = {}
 
 ---@param node AstNode
@@ -109,6 +112,21 @@ end
 
 ---@param node AstNode
 ---@param value RuntimeValue
+---@return RuntimeNumber|ResultError
+function M.assert_integer(node, value)
+	local error = M.expected_type(node, "number", value.type)
+	if error then
+		return error
+	end
+	local number = value --[[@as RuntimeNumber]]
+	if number.value % 1 == 0 then
+		return number
+	end
+	return M.result_error({ M.eval_error(node, ("expected an integer value, found `%s`"):format(number.value)) })
+end
+
+---@param node AstNode
+---@param value RuntimeValue
 ---@return RuntimeBoolean|ResultError
 function M.assert_boolean(node, value)
 	local error = M.expected_type(node, "boolean", value.type)
@@ -118,20 +136,16 @@ function M.assert_boolean(node, value)
 	return value --[[@as RuntimeBoolean]]
 end
 
-------@param left RuntimeValue
-------@param right RuntimeValue
-------@param node BinaryNode
-------@return boolean error
-------@return ResultError|{left: RuntimeNumber, right: RuntimeNumber}
----function M.validate_numbers(left, right, node)
----	local left_val = M.assert_numeric(node.left, left)
----	local right_val = M.assert_numeric(node.right, right)
----
----	if left_val.type == "error" or right_val.type == "error" then
----		return true, M.join_result_errors(left_val.errors, right_val.errors)
----	end
----
----	return false, { left = left_val, right = right_val }
----end
+---@param node AstNode
+---@param value RuntimeNumber
+function M.expected_unitless(node, value)
+	local units = value.units
+	if not u.units_empty(units) then
+		return M.result_error({
+			M.eval_error(node, ("expected unitless value found `%s`"):format(unit_render.render_units(units))),
+		})
+	end
+	return nil
+end
 
 return M
