@@ -65,6 +65,15 @@ M.binary_numeric = {
 
 		return h.result_success(h.runtime_number(left.value ^ right.value, u.units_exp(left.units, right.value)))
 	end,
+	---@type BinaryNumericOp
+	["%"] = function(left, right, node)
+		if not u.units_empty(right.units) then
+			local units = ("[%s]"):format(unit_render.render_units(right.units))
+			return h.result_error({ h.eval_error(node.right, "divisor can't have units, found: " .. units) })
+		end
+
+		return h.result_success(h.runtime_number(left.value % right.value, left.units))
+	end,
 }
 
 ---@alias BinaryBooleanOp fun(left: RuntimeValue, right: RuntimeValue, node: BinaryNode): Result
