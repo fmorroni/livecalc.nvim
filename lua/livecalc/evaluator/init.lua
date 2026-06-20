@@ -241,7 +241,7 @@ node_eval = {
 		local can_infer = true
 
 		for _, param in ipairs(fn.params) do
-			if param.unit == nil then
+			if param.param_type.type == "param_any" then
 				can_infer = false
 				break
 			end
@@ -249,25 +249,25 @@ node_eval = {
 
 		---@type Units?
 		local return_units = nil
-		if can_infer then
-			local bindings = {}
-
-			for _, param in ipairs(fn.params) do
-				bindings[param.name] = {
-					type = "number",
-					value = 1,
-					units = vim.deepcopy(param.unit),
-				}
-			end
-
-			local result = M_priv.eval_function_body(fn, bindings)
-			if result.type == "error" then
-				return result
-			end
-			local value = result.value
-			assert(value.type == "number", "Expected to infer numeric value")
-			return_units = value.units
-		end
+		-- if can_infer then
+		-- 	local bindings = {}
+		--
+		-- 	for _, param in ipairs(fn.params) do
+		-- 		bindings[param.name] = {
+		-- 			type = "number",
+		-- 			value = 1,
+		-- 			units = vim.deepcopy(param.unit),
+		-- 		}
+		-- 	end
+		--
+		-- 	local result = M_priv.eval_function_body(fn, bindings)
+		-- 	if result.type == "error" then
+		-- 		return result
+		-- 	end
+		-- 	local value = result.value
+		-- 	assert(value.type == "number", "Expected to infer numeric value")
+		-- 	return_units = value.units
+		-- end
 
 		fn.return_units = return_units
 
@@ -298,13 +298,16 @@ end
 ---@param node IdentifierCallNode | InlineFunctionCallNode
 ---@param env Env
 function M_priv.eval_runtime_function(fn, node, env)
-	if #node.args ~= #fn.params then
-		return h.result_error({
-			h.eval_error(node, ("expected %d args, got %d"):format(#fn.params, #node.args)),
-		})
+	local error = h.expected_quantity_args(node, #fn.params, #node.args)
+	if error then
+		return error
 	end
 
+	---@type Env
 	local bindings = {}
+
+	---@type ResultError?
+	local errors
 
 	for i, param in ipairs(fn.params) do
 		local arg = M_priv.eval(node.args[i], env)
@@ -315,27 +318,56 @@ function M_priv.eval_runtime_function(fn, node, env)
 
 		local value = arg.value
 
-		if param.unit then
-			if value.type ~= "number" then
-				return h.result_error({
-					h.eval_error(node.args[i], "expected a numeric argument"),
-				})
+		if param.param_type.type == "param_numeric" then
+			local value = h.assert_number(node.args[i], value)
+			if value.type == "error" then
+				errors = h.join_result_errors(errors and errors.errors, value.errors)
+			else
+				local error = h.expected_equal_units(node.args[i], param.param_type.unit, value.units)
+				if error then
+					errors = h.join_result_errors(errors and errors.errors, error.errors)
+				end
 			end
-
-			if not u.units_equal(value.units, param.unit) then
-				return h.result_error({
-					h.eval_error(
-						node.args[i],
-						("argument of type `[%s]` is not assignable to parameter of type `[%s]`"):format(
-							unit_render.render_units(value.units),
-							unit_render.render_units(param.unit)
-						)
-					),
-				})
+		elseif param.param_type.type == "param_boolean" then
+			local value = h.assert_boolean(node.args[i], value)
+			if value.type == "error" then
+				errors = h.join_result_errors(errors and errors.errors, value.errors)
+			end
+		elseif param.param_type.type == "param_function" then
+			local value = h.assert_function(node.args[i], value)
+			if value.type == "error" then
+				errors = h.join_result_errors(errors and errors.errors, value.errors)
+			else
+				local error = h.expected_quantity_args(node.args[i], #param.param_type.params, #value.params)
+				if error then
+					errors = h.join_result_errors(errors and errors.errors, error.errors)
+				else
+					for j, arg_param in ipairs(value.params) do
+						local param = param.param_type.params[j]
+						if param.type ~= "param_any" and arg_param.param_type.type ~= param.type then
+							-- TODO: better error message
+							errors = h.join_result_errors(
+								errors and errors.errors,
+								{ h.eval_error(arg_param, "wrong param type lalalala") }
+							)
+						elseif param.type == "param_numeric" then
+							local error = h.expected_equal_units(arg_param, arg_param.param_type.unit, param.unit)
+							if error then
+								errors = h.join_result_errors(errors and errors.errors, error.errors)
+							end
+						elseif param.type == "param_function" then
+							-- TODO: this will probably need to be recursive
+						end
+					end
+				end
 			end
 		end
 
 		bindings[param.name] = value
+	end
+
+	if errors then
+		return errors
 	end
 
 	local res = M_priv.eval_function_body(fn, bindings)

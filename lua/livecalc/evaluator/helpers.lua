@@ -3,7 +3,7 @@ local unit_render = require("livecalc.render.units")
 
 local M = {}
 
----@param node AstNode
+---@param node BaseNode
 ---@param msg string
 function M.eval_error(node, msg)
 	---@type EvalError
@@ -74,7 +74,7 @@ function M.runtime_function(node, env)
 	}
 end
 
----@param node AstNode
+---@param node BaseNode
 ---@param expected_type RuntimeType
 ---@param actual_type RuntimeType
 function M.expected_type(node, expected_type, actual_type)
@@ -86,7 +86,7 @@ function M.expected_type(node, expected_type, actual_type)
 	return nil
 end
 
----@param node AstNode
+---@param node BaseNode
 ---@param expected_type RuntimeType[]
 ---@param actual_type RuntimeType
 function M.expected_types(node, expected_type, actual_type)
@@ -95,11 +95,10 @@ function M.expected_types(node, expected_type, actual_type)
 			M.eval_error(node, ("expected `%s` found `%s`"):format(table.concat(expected_type, " or "), actual_type)),
 		})
 	end
-
 	return nil
 end
 
----@param node AstNode
+---@param node BaseNode
 ---@param value RuntimeValue
 ---@return RuntimeNumber|ResultError
 function M.assert_number(node, value)
@@ -110,7 +109,7 @@ function M.assert_number(node, value)
 	return value --[[@as RuntimeNumber]]
 end
 
----@param node AstNode
+---@param node BaseNode
 ---@param value RuntimeValue
 ---@return RuntimeNumber|ResultError
 function M.assert_integer(node, value)
@@ -125,7 +124,7 @@ function M.assert_integer(node, value)
 	return M.result_error({ M.eval_error(node, ("expected an integer value, found `%s`"):format(number.value)) })
 end
 
----@param node AstNode
+---@param node BaseNode
 ---@param value RuntimeValue
 ---@return RuntimeBoolean|ResultError
 function M.assert_boolean(node, value)
@@ -136,13 +135,54 @@ function M.assert_boolean(node, value)
 	return value --[[@as RuntimeBoolean]]
 end
 
----@param node AstNode
+---@param node BaseNode
+---@param value RuntimeValue
+---@return RuntimeFunction|ResultError
+function M.assert_function(node, value)
+	local error = M.expected_type(node, "function", value.type)
+	if error then
+		return error
+	end
+	return value --[[@as RuntimeFunction]]
+end
+
+---@param node BaseNode
 ---@param value RuntimeNumber
 function M.expected_unitless(node, value)
 	local units = value.units
 	if not u.units_empty(units) then
 		return M.result_error({
 			M.eval_error(node, ("expected unitless value found `%s`"):format(unit_render.render_units(units))),
+		})
+	end
+	return nil
+end
+
+---@param node BaseNode
+---@param expected Units
+---@param actual Units
+function M.expected_equal_units(node, expected, actual)
+	if not u.units_equal(expected, actual) then
+		return M.result_error({
+			M.eval_error(
+				node,
+				("expected `[%s]` found `[%s]`"):format(
+					unit_render.render_units(expected),
+					unit_render.render_units(actual)
+				)
+			),
+		})
+	end
+	return nil
+end
+
+---@param node BaseNode
+---@param expected integer
+---@param actual integer
+function M.expected_quantity_args(node, expected, actual)
+	if expected ~= actual then
+		return M.result_error({
+			M.eval_error(node, ("expected %d args, got %d"):format(expected, actual)),
 		})
 	end
 	return nil

@@ -11,7 +11,7 @@
 
 ---@class RuntimeFunction
 ---@field type "function"
----@field params FunctionParameterNode[]
+---@field params FunctionParamNode[]
 ---@field return_units Units?
 ---@field body AstNode
 ---@field closure Env

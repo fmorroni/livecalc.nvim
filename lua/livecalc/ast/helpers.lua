@@ -10,7 +10,13 @@ end
 ---@param field string
 function M.assert_field(node, field)
 	local field_node = node:field(field)
-	assert(#field_node > 0, "Unexpected parsing error. Field not found.")
+	assert(
+		#field_node > 0,
+		("Unexpected parsing error on `%s`. Field not found. Position %d:%d-%d:%d"):format(
+			node:type(),
+			node:range()
+		)
+	)
 	return field_node[1]
 end
 
@@ -18,7 +24,13 @@ end
 ---@param idx integer
 function M.assert_named_child(node, idx)
 	local named_child = node:named_child(idx)
-	assert(named_child ~= nil, "Unexpected parsing error. Named child not found.")
+	assert(
+		named_child ~= nil,
+		("Unexpected parsing error on `%s`. Named child not found. Position %d:%d-%d:%d"):format(
+			node:type(),
+			node:range()
+		)
+	)
 	return named_child
 end
 

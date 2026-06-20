@@ -62,15 +62,32 @@
 ---@field fn FunctionNode
 ---@field args AstNode[]
 
----@class FunctionParameterNode : BaseNode
+---@alias FunctionParamType FunctionParamNumeric|FunctionParamBoolean|FunctionParamFunction|FunctionParamAny
+
+---@class FunctionParamNumeric : BaseNode
+---@field type "param_numeric"
+---@field unit Units
+
+---@class FunctionParamBoolean : BaseNode
+---@field type "param_boolean"
+
+---@class FunctionParamFunction : BaseNode
+---@field type "param_function"
+---@field params FunctionParamType[]
+---@field return_type FunctionParamType
+
+---@class FunctionParamAny : BaseNode
+---@field type "param_any"
+
+---@class FunctionParamNode : BaseNode
 ---@field type "function_parameter"
 ---@field name string
----@field unit Units?
+---@field param_type FunctionParamType
 
 ---@class FunctionNode : BaseNode
 ---@field type "function_def"
 ---@field body AstNode
----@field params FunctionParameterNode[]
+---@field params FunctionParamNode[]
 
 ---@class BuiltinConstant : BaseNode
 ---@field type "builtin_constant"

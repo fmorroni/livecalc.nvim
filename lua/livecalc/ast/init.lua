@@ -4,38 +4,15 @@ local M = {}
 
 local h = require("livecalc.ast.helpers")
 local u = require("livecalc.ast.units")
+local p = require("livecalc.ast.params")
 
 --------------------------------------------------------------------------------
 -- AST Builder
 --------------------------------------------------------------------------------
 
 local ast_conversion
-local ast_conversion_extra
 
-ast_conversion_extra = {
-	---@type AstConversionFun<FunctionParameterNode|ErrorNode>
-	parameter = function(bufnr, node)
-		---@type Units?
-		local type = nil
-
-		local type_node = node:field("type")[1]
-		if type_node then
-			local units = u.normalize(bufnr, h.assert_named_child(type_node, 0))
-			if units.type == "error" then
-				return units
-			end
-			type = units.value
-		end
-
-		---@type FunctionParameterNode
-		return {
-			type = "function_parameter",
-			name = h.text(bufnr, h.assert_field(node, "name")),
-			unit = type,
-			range = h.range(node),
-		}
-	end,
-
+local ast_conversion_extra = {
 	---@type fun(bufnr: integer, node: TSNode, type: BinaryNodeType): BinaryNode
 	binary_expression = function(bufnr, node, type)
 		local left = h.assert_field(node, "left")
@@ -153,6 +130,8 @@ ast_conversion = {
 			end
 		end
 
+		-- FIXME: I need to handle the generic case of `<expression>(<params>)` since any
+		-- expression could evaluate to a function.
 		if callee:type() == "builtin" then
 			---@type BuiltinCallNode
 			return {
@@ -228,13 +207,13 @@ ast_conversion = {
 
 	---@type AstConversionFun<FunctionNode|ErrorNode>
 	["function"] = function(bufnr, node)
-		---@type FunctionParameterNode[]
+		---@type FunctionParamNode[]
 		local params = {}
 
 		local params_node = node:field("params")[1]
 		if params_node then
 			for _, child in ipairs(params_node:named_children()) do
-				local param = ast_conversion_extra.parameter(bufnr, child)
+				local param = p.parameter(bufnr, child)
 				if param.type == "error" then
 					return param
 				end
