@@ -130,8 +130,8 @@ ast_conversion = {
 			end
 		end
 
-		-- FIXME: I need to handle the generic case of `<expression>(<params>)` since any
-		-- expression could evaluate to a function.
+    -- FIXME: I need to handle the generic case of `<expression>(<params>)` since any
+    -- expression could evaluate to a function.
 		if callee:type() == "builtin" then
 			---@type BuiltinCallNode
 			return {
