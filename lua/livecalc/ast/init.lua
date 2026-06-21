@@ -102,16 +102,23 @@ ast_conversion = {
 
 	---@type AstConversionFun<UnitAttachNode|ErrorNode>
 	expression_with_units = function(bufnr, node)
-		local units = u.normalize(bufnr, h.assert_named_child(h.assert_field(node, "units"), 0))
-		if units.type == "error" then
-			return units
+		---@type Units
+		local units = {}
+
+		local asdf = h.assert_field(node, "units"):named_child(0)
+		if asdf then
+			local unit_node = u.normalize(bufnr, asdf)
+			if unit_node.type == "error" then
+				return unit_node
+			end
+			units = unit_node.value
 		end
 
 		---@type UnitAttachNode
 		return {
 			type = "unit_attach",
 			expr = M.build(bufnr, h.assert_field(node, "expr")),
-			units = units.value,
+			units = units,
 			range = h.range(node),
 		}
 	end,
