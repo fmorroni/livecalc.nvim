@@ -30,6 +30,11 @@ local ast_conversion_extra = {
 }
 
 ast_conversion = {
+	---@type AstConversionFun<AstNode>
+	statement = function(bufnr, node)
+		return M.build(bufnr, h.assert_named_child(node, 0))
+	end,
+
 	---@type AstConversionFun<NumberNode>
 	number = function(bufnr, node)
 		---@type NumberNode
