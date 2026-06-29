@@ -10,23 +10,40 @@ local param_type_parsing
 param_type_parsing = {
 	---@type ParamTypeParseFun<FunctionParamNumeric|ErrorNode>
 	units = function(bufnr, type_node)
-		local units_node = h.assert_named_child(type_node, 0)
-		local units = u.normalize(bufnr, units_node)
-		if units.type == "error" then
-			return units
+		local units_node = type_node:named_child(0)
+		if units_node then
+			local units = u.normalize(bufnr, units_node)
+			if units.type == "error" then
+				return units
+			end
+			---@type FunctionParamNumeric
+			return {
+				type = "param_numeric",
+				unit = units.value,
+				range = h.range(units_node),
+			}
+		else
+			---@type FunctionParamNumeric
+			return {
+				type = "param_numeric",
+				unit = {},
+				range = h.range(type_node),
+			}
 		end
-		---@type FunctionParamNumeric
-		return {
-			type = "param_numeric",
-			unit = units.value,
-			range = h.range(units_node),
-		}
 	end,
 	---@type ParamTypeParseFun<FunctionParamBoolean>
 	boolean_type = function(_, type_node)
 		---@type FunctionParamBoolean
 		return {
 			type = "param_boolean",
+			range = h.range(type_node),
+		}
+	end,
+	numeric_type = function(_, type_node)
+		---@type FunctionParamNumeric
+		return {
+			type = "param_numeric",
+			unit = nil,
 			range = h.range(type_node),
 		}
 	end,

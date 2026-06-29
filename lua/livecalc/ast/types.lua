@@ -66,7 +66,7 @@
 
 ---@class FunctionParamNumeric : BaseNode
 ---@field type "param_numeric"
----@field unit Units
+---@field unit Units?
 
 ---@class FunctionParamBoolean : BaseNode
 ---@field type "param_boolean"
