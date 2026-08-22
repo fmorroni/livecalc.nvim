@@ -179,6 +179,18 @@ M = {
 		end
 		return h.result_success(h.runtime_number(utils.round(value.value, digits.value), value.units))
 	end,
+
+	---@type BuiltinFun
+	floor = function(args, node)
+		if #args ~= 1 then
+			return unexpected_arg_count(1, 1, #args, node)
+		end
+		local value = h.assert_number(node.args[1], args[1])
+		if value.type == "error" then
+			return h.result_error(value.errors)
+		end
+		return h.result_success(h.runtime_number(math.floor(value.value), value.units))
+	end,
 }
 
 return M
